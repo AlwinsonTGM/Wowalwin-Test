@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Local machine / tooling noise
+.spark-mcp/
+package-lock.json
+
+# Secrets and local overrides
+.env
+.env.*.local
