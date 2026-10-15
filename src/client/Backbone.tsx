@@ -1,4 +1,5 @@
-import { copy, forPresenter, showConfig } from '../content/show.ts';
+import { copy, showConfig } from '../content/show.ts';
+import { forPresenter } from '../content/questions.ts';
 import { cullLowOnQuestions, cullOver, questionsLeft, survivors, type ShownState } from '../game/machine.ts';
 import { useSecondsLeft } from './clock.ts';
 import { useShowSound } from './useShowSound.ts';

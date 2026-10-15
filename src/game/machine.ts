@@ -1,5 +1,6 @@
 import type { GameEvent, SimulationMode } from './events.ts';
-import { questionBank, showConfig, simulatedName } from '../content/show.ts';
+import { findQuestion, questionsIn, type PoolName, type Question } from '../content/questions.ts';
+import { showConfig, simulatedName } from '../content/show.ts';
 
 export type Player = {
   id: string;
@@ -89,7 +90,7 @@ const setConnected = (state: GameState, playerId: string, connected: boolean): G
 });
 
 const questionOn = (id: string, at: number): PublicQuestion | null => {
-  const question = questionBank.find((candidate) => candidate.id === id);
+  const question = findQuestion(id);
   if (!question) return null;
 
   // The options are copied without the answer key on purpose. A surface that
@@ -120,7 +121,7 @@ const revealAnswer = (state: GameState): GameState => {
   const question = state.question;
   if (!question) return state;
 
-  const bank = questionBank.find((candidate) => candidate.id === question.id);
+  const bank = findQuestion(question.id);
   const option = bank?.options.find((candidate) => candidate.id === bank.correctOptionId);
   // A question whose answer key is broken publishes nothing at all, rather
   // than publishing an answer nobody can trust.
@@ -241,9 +242,9 @@ export function planResume(state: GameState, playerId: string): ResumePlan {
 export const survivors = (state: Pick<GameState, 'roster'>): Player[] =>
   state.roster.filter((player) => player.standing === 'in');
 
-/** Questions the show has not asked yet. */
-export const questionsLeft = (state: Pick<GameState, 'asked'>): number =>
-  questionBank.filter((question) => !state.asked.includes(question.id)).length;
+/** Questions the pool has not asked yet. */
+export const questionsLeft = (state: Pick<GameState, 'asked'>, pool: PoolName = 'cull'): number =>
+  questionsIn(pool).filter((question) => !state.asked.includes(question.id)).length;
 
 /** Why the cull may not run another question, if it may not. */
 export type CullOver = 'cullComplete' | 'queueEmpty' | null;
@@ -256,10 +257,10 @@ export type CullOver = 'cullComplete' | 'queueEmpty' | null;
  * Before anything has been asked this is `null` however small the room is, so
  * the first question always goes up.
  */
-export const cullOver = (state: Pick<GameState, 'roster' | 'asked'>): CullOver => {
+export const cullOver = (state: Pick<GameState, 'roster' | 'asked'>, pool: PoolName = 'cull'): CullOver => {
   if (state.asked.length === 0) return null;
   if (survivors(state).length <= showConfig.cull.targetPlayers) return 'cullComplete';
-  return questionsLeft(state) === 0 ? 'queueEmpty' : null;
+  return questionsLeft(state, pool) === 0 ? 'queueEmpty' : null;
 };
 
 /** True when the Presenter should know the bank is nearly gone and the target
@@ -287,15 +288,15 @@ export type PresentPlan =
  * against it, and not before the show has started. And not once the cull has
  * finished with the room; ticket 04 extends this to the bracket's own supply.
  */
-export function planNextQuestion(state: GameState, at: number): PresentPlan {
+export function planNextQuestion(state: GameState, at: number, pool: PoolName = 'cull'): PresentPlan {
   if (state.phase === 'joining' || state.phase === 'answering' || state.phase === 'revealPending') {
     return { outcome: 'notReady' };
   }
 
-  const over = cullOver(state);
+  const over = cullOver(state, pool);
   if (over !== null) return { outcome: over };
 
-  const next = questionBank.find((question) => !state.asked.includes(question.id));
+  const next = questionsIn(pool).find((question) => !state.asked.includes(question.id));
   if (!next) return { outcome: 'queueEmpty' };
 
   return { outcome: 'presented', event: { type: 'questionPresented', questionId: next.id, at } };
@@ -436,7 +437,7 @@ export type AnswerPlan = { answers: Extract<GameEvent, { type: 'answerSubmitted'
  */
 export function planSimulateAnswers(state: GameState, mode: SimulationMode): AnswerPlan {
   const question = state.question;
-  const bank = question ? questionBank.find((candidate) => candidate.id === question.id) : undefined;
+  const bank = question ? findQuestion(question.id) : undefined;
   if (state.phase !== 'answering' || !question || !bank) return { answers: [] };
 
   const wrongId = question.options.find((option) => option.id !== bank.correctOptionId)?.id;

@@ -18,20 +18,21 @@ import {
   survivors,
 } from './machine.ts';
 import type { GameEvent, SimulationMode } from './events.ts';
-import { forPresenter, questionBank, showConfig, simulatedName } from '../content/show.ts';
+import { showConfig, simulatedName } from '../content/show.ts';
+import { cullQuestions, forPresenter } from '../content/questions.ts';
 
 const aPlayer = (id: string, name: string): GameEvent => ({ type: 'playerJoined', playerId: id, name });
 const showStarted: GameEvent = { type: 'showStarted' };
 
 /** The first question of the queue, going up at a fixed instant. */
-const firstQuestion = (at = 1000): GameEvent => ({ type: 'questionPresented', questionId: questionBank[0]!.id, at });
+const firstQuestion = (at = 1000): GameEvent => ({ type: 'questionPresented', questionId: cullQuestions[0]!.id, at });
 
 // These tests read the bank from content rather than inventing questions, so
 // they cannot drift from the wording the presenters actually ship. Two entries
 // are needed to show the queue advancing; the throw says so out loud if the
 // file ever stops having them.
-const questionOne = questionBank[0];
-const questionTwo = questionBank[1];
+const questionOne = cullQuestions[0];
+const questionTwo = cullQuestions[1];
 if (!questionOne || !questionTwo) throw new Error('the question bank needs two questions for these tests');
 
 const readyToAsk = (...log: GameEvent[]) => fold([aPlayer('p1', 'Ana'), showStarted, ...log]);
@@ -244,23 +245,20 @@ describe('asking a question', () => {
   });
 
   it('says so plainly when the queue is spent', () => {
-  // Forty Players who keep eleven of their number alive twice: the bank runs
-  // out before the target does, which is the one way the cull ends early that
-  // is not its target being met.
-  const spent = fold([
-    ...aRoom(showConfig.playerCap),
-    firstQuestion(2000),
-    ...rightOn(questionOne, 11),
-    { type: 'questionPresented', questionId: questionTwo.id, at: 2000 },
-    ...rightOn(questionTwo, 11),
-    ...closed,
-  ]);
+    // Forty Players who keep eleven of their number alive: the bank runs
+    // out before the target does, which is the one way the cull ends early that
+    // is not its target being met.
+    const log: GameEvent[] = [...aRoom(showConfig.playerCap)];
+    for (const q of cullQuestions) {
+      log.push({ type: 'questionPresented', questionId: q.id, at: 2000 }, ...rightOn(q, 11), ...closed);
+    }
+    const spent = fold(log);
 
-  expect(spent.asked).toEqual([questionOne.id, questionTwo.id]);
-  expect(survivors(spent)).toHaveLength(11);
-  expect(planNextQuestion(spent, 3000).outcome).toBe('queueEmpty');
-  expect(cullOver(spent)).toBe('queueEmpty');
-});
+    expect(spent.asked).toEqual(cullQuestions.map((q) => q.id));
+    expect(survivors(spent)).toHaveLength(11);
+    expect(planNextQuestion(spent, 3000).outcome).toBe('queueEmpty');
+    expect(cullOver(spent)).toBe('queueEmpty');
+  });
 
   it('ignores a question the content file does not have', () => {
     const log = [showStarted, { type: 'questionPresented', questionId: 'nope', at: 1 }] satisfies GameEvent[];
@@ -399,7 +397,7 @@ const correctOf = questionOne.correctOptionId;
 const wrongOf = questionOne.options.find((option) => option.id !== correctOf)!.id;
 
 /** The first `count` Players answering `question` correctly. */
-const rightOn = (question: (typeof questionBank)[number], count: number): GameEvent[] =>
+const rightOn = (question: (typeof cullQuestions)[number], count: number): GameEvent[] =>
   Array.from({ length: count }, (_, i) => submits(`p${i}`, question.correctOptionId));
 
 /** Seeded Players `from`..`from + count - 1` answering question one correctly. */
@@ -447,7 +445,7 @@ function runTheCull(size: number, rounds: boolean[][]) {
       // The answer key belongs to the question that is actually on screen, which
       // is not the same one on the first round: the queue moves on.
       const asked = fold(log).question;
-      const bank = questionBank.find((candidate) => candidate.id === asked?.id);
+      const bank = cullQuestions.find((candidate) => candidate.id === asked?.id);
       if (!bank) throw new Error('a question should be on screen by now');
       const plan = planSubmitAnswer(fold(log), {
         playerId: `p${player}`,
@@ -475,7 +473,7 @@ function driveTheSeededCull(size: number, mode: SimulationMode) {
   const log: GameEvent[] = [...seedRoom(size), showStarted];
   let state = fold(log);
 
-  for (const round of questionBank.keys()) {
+  for (const round of cullQuestions.keys()) {
     const next = planNextQuestion(state, round * 1000);
     if (next.outcome !== 'presented') break;
 
@@ -564,7 +562,13 @@ describe('the cull', () => {
   });
 
   it('warns about the queue only while the target is unmet', () => {
-    const stillRunning = fold([...aRoom(12), firstQuestion(), ...rightOn(questionOne, 11), ...closed]);
+    // Ask until 1 question is left in the cull queue
+    const askedQuestions = cullQuestions.slice(0, cullQuestions.length - 1);
+    const log: GameEvent[] = [...aRoom(12)];
+    for (const q of askedQuestions) {
+      log.push({ type: 'questionPresented', questionId: q.id, at: 1000 }, ...rightOn(q, 11), ...closed);
+    }
+    const stillRunning = fold(log);
 
     expect(survivors(stillRunning)).toHaveLength(11);
     expect(cullOver(stillRunning)).toBeNull();
@@ -608,17 +612,20 @@ describe('the cull, whatever the room does', () => {
   });
 
   it('terminates across rounds too, when the first round is not enough', () => {
-    // Twelve is above the target, so the cull has to keep going — and the bank
-    // has two questions, so a room that keeps eleven alive runs out of
-    // questions with the target unmet rather than stopping on it.
+    // Twelve is above the target, so the cull has to keep going — and a room
+    // that keeps eleven alive runs out of questions with the target unmet
+    // rather than stopping on it.
     const SIZE = 12;
 
     for (const kept of [SIZE, SIZE - 1]) {
-      const { state } = runTheCull(SIZE, [bigRoom(SIZE, kept), bigRoom(SIZE, kept)]);
+      const { state } = runTheCull(
+        SIZE,
+        Array.from({ length: cullQuestions.length }, () => bigRoom(SIZE, kept)),
+      );
 
       expect(cullOver(state)).toBe('queueEmpty');
       expect(survivors(state)).toHaveLength(kept);
-      expect(state.asked).toHaveLength(2);
+      expect(state.asked).toHaveLength(cullQuestions.length);
     }
   });
 

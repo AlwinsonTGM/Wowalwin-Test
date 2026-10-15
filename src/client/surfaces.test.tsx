@@ -5,7 +5,8 @@ import { Backbone } from './Backbone.tsx';
 import { Stage } from './Stage.tsx';
 import { Player } from './Player.tsx';
 import type { ShownState, Player as RosterPlayer } from '../game/machine.ts';
-import { copy, forPresenter, questionBank, showConfig } from '../content/show.ts';
+import { copy, showConfig } from '../content/show.ts';
+import { cullQuestions, forPresenter } from '../content/questions.ts';
 import { questionsLeft } from '../game/machine.ts';
 
 /**
@@ -40,7 +41,7 @@ const aShow = (roster: RosterPlayer[] = [], phase: ShownState['phase'] = 'joinin
 });
 
 /** One question on screen, exactly as the machine would publish it. */
-const [theQuestion] = questionBank;
+const [theQuestion] = cullQuestions;
 if (!theQuestion) throw new Error('the question bank needs a question for these tests');
 
 const asking = (over: Partial<ShownState> = {}): ShownState => ({
@@ -441,9 +442,10 @@ describe('the cull on the Backbone', () => {
 
   it('warns the Presenter when the bank is nearly gone and the target is unmet', () => {
     // One question left in the bank, eleven still in the room.
-    render(backbone(cull(11)));
+    const nearlySpent = cull(11, { asked: cullQuestions.slice(0, cullQuestions.length - 1).map((q) => q.id) });
+    render(backbone(nearlySpent));
 
-    expect(screen.getByText(copy.backbone.queueLow(questionsLeft(cull(11))))).toBeTruthy();
+    expect(screen.getByText(copy.backbone.queueLow(questionsLeft(nearlySpent)))).toBeTruthy();
   });
 
   it('says nothing about the queue once the target is met', () => {

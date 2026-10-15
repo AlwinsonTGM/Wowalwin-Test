@@ -8,7 +8,8 @@ import { writeEventLog } from './event-log.ts';
 import { reachableHost } from './address.ts';
 import type { ServerMessage, ClientMessage } from '../shared/protocol.ts';
 import type { ShownState, JoinOutcome } from '../game/machine.ts';
-import { copy, questionBank, showConfig } from '../content/show.ts';
+import { copy, showConfig } from '../content/show.ts';
+import { cullQuestions } from '../content/questions.ts';
 
 const aTempLog = () => join(mkdtempSync(join(tmpdir(), 'wowolwin-')), 'event-log.json');
 
@@ -261,7 +262,7 @@ describe('a phone the show turned away', () => {
   });
 
   it('cannot reveal an answer it was never shown', async () => {
-    const [question] = questionBank;
+    const [question] = cullQuestions;
     if (!question) throw new Error('the question bank needs a question for this test');
 
     await withServer(
@@ -316,7 +317,7 @@ describe('a phone the show turned away', () => {
 });
 
 describe('one question, answered and revealed', () => {
-  const [question] = questionBank;
+  const [question] = cullQuestions;
   if (!question) throw new Error('the question bank needs a question for these tests');
 
   /** The next state this surface is told that matches: the ones before are the same show a moment earlier. */
@@ -632,25 +633,21 @@ describe('the cull over the wire', () => {
       presenter.send({ kind: 'setSimulation', armed: true, mode: 'correct' });
       await stateWhere(presenter, (state) => state.simulation.armed);
 
-      await askAndClose(presenter, stage);
-      presenter.send({ kind: 'reveal' });
-      const first = await stateWhere(stage, (state) => state.answer !== null);
-      expect(first.roster.filter((player) => player.standing === 'in')).toHaveLength(ROOM);
-
-      await askAndClose(presenter, stage);
-      presenter.send({ kind: 'reveal' });
-      const second = await stateWhere(stage, (state) => state.answer !== null && state.asked.length === 2);
-      expect(second.asked).toHaveLength(2);
+      for (let i = 0; i < cullQuestions.length; i++) {
+        await askAndClose(presenter, stage);
+        presenter.send({ kind: 'reveal' });
+        await stateWhere(stage, (state) => state.answer !== null && state.asked.length === i + 1);
+      }
 
       // The bank ran out before the target was reached, and the show says so
-      // rather than asking a third time: a refusal broadcasts nothing, so the
-      // only way to see it is to make something else broadcast and check.
+      // rather than asking past the end of the bank: a refusal broadcasts nothing,
+      // so the only way to see it is to make something else broadcast and check.
       stage.drain();
       presenter.send({ kind: 'presentQuestion' });
       presenter.send({ kind: 'setSimulation', armed: false, mode: 'correct' });
       const after = await stateWhere(stage, (state) => state.simulation.armed === false);
 
-      expect(after.asked).toHaveLength(2);
+      expect(after.asked).toHaveLength(cullQuestions.length);
       expect(after.roster.filter((player) => player.standing === 'in').length).toBeGreaterThan(
         showConfig.cull.targetPlayers,
       );
