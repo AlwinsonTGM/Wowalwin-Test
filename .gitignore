@@ -5,6 +5,9 @@ node_modules/
 dist/
 build/
 
+# The running show's event log
+data/
+
 # Local machine / tooling noise
 .spark-mcp/
 package-lock.json
