@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, act } from '@testing-library/react'
 import { Backbone } from './Backbone.tsx';
 import { Stage } from './Stage.tsx';
 import { Player } from './Player.tsx';
-import type { ShownState, Player as RosterPlayer } from '../game/machine.ts';
+import type { ShownState, Player as RosterPlayer, BracketState } from '../game/machine.ts';
 import { copy, showConfig } from '../content/show.ts';
 import { cullQuestions, forPresenter } from '../content/questions.ts';
 import { questionsLeft } from '../game/machine.ts';
@@ -38,6 +38,7 @@ const aShow = (roster: RosterPlayer[] = [], phase: ShownState['phase'] = 'joinin
   question: null,
   answer: null,
   simulation: { armed: false, mode: 'mixed' },
+  bracket: null,
 });
 
 /** One question on screen, exactly as the machine would publish it. */
@@ -673,5 +674,276 @@ describe('the Player phone', () => {
     expect(screen.getByText(theQuestion.prompt)).toBeTruthy();
     expect(screen.queryByRole('button', { name: theQuestion.options[0]!.label })).toBeNull();
     expect(screen.getByText(copy.player.joined('Ana'))).toBeTruthy();
+  });
+});
+
+describe('the bracket on the surfaces', () => {
+  const p1: RosterPlayer = { id: 'p1', name: 'Ana', connected: true, standing: 'in', simulated: false };
+  const p2: RosterPlayer = { id: 'p2', name: 'Ben', connected: true, standing: 'in', simulated: false };
+  const p3: RosterPlayer = { id: 'p3', name: 'Cara', connected: true, standing: 'in', simulated: false };
+  const p4: RosterPlayer = { id: 'p4', name: 'Dan', connected: true, standing: 'in', simulated: false };
+  const p5: RosterPlayer = { id: 'p5', name: 'Eva', connected: true, standing: 'in', simulated: false };
+  const p6: RosterPlayer = { id: 'p6', name: 'Fay', connected: true, standing: 'in', simulated: false };
+  const p7: RosterPlayer = { id: 'p7', name: 'Gia', connected: true, standing: 'in', simulated: false };
+  const p8: RosterPlayer = { id: 'p8', name: 'Hal', connected: true, standing: 'in', simulated: false };
+  const p9: RosterPlayer = { id: 'p9', name: 'Ian', connected: true, standing: 'in', simulated: false };
+  const p10: RosterPlayer = { id: 'p10', name: 'Joy', connected: true, standing: 'in', simulated: false };
+
+  const roster10 = [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10];
+  const roster8 = [p1, p2, p3, p4, p5, p6, p7, p8];
+
+  const aBracket = (): BracketState => ({
+    bouts: [
+      { id: 'bout-1', round: 'quarter', index: 0, player1Id: 'p1', player2Id: 'p2', winnerId: null },
+      { id: 'bout-2', round: 'quarter', index: 1, player1Id: 'p3', player2Id: 'p4', winnerId: null },
+      { id: 'bout-3', round: 'quarter', index: 2, player1Id: 'p5', player2Id: 'p6', winnerId: null },
+      { id: 'bout-4', round: 'quarter', index: 3, player1Id: 'p7', player2Id: 'p8', winnerId: null },
+      { id: 'bout-5', round: 'semi', index: 4, player1Id: null, player2Id: null, winnerId: null },
+      { id: 'bout-6', round: 'semi', index: 5, player1Id: null, player2Id: null, winnerId: null },
+      { id: 'bout-7', round: 'final', index: 6, player1Id: null, player2Id: null, winnerId: null },
+    ],
+    currentBoutId: 'bout-1',
+    finalistId: null,
+    seed: 42,
+  });
+
+  const backbone = (state: ShownState, over: Partial<Parameters<typeof Backbone>[0]> = {}) => (
+    <Backbone
+      state={state}
+      joinUrl={JOIN_URL}
+      connection="online"
+      onStartShow={() => {}}
+      onPresentQuestion={() => {}}
+      onReveal={() => {}}
+      onSimulate={() => {}}
+      onClearSimulated={() => {}}
+      onSimulateAnswers={() => {}}
+      onSetSimulation={() => {}}
+      {...over}
+    />
+  );
+
+  const phone = (over: Partial<Parameters<typeof Player>[0]> = {}) => (
+    <Player
+      state={aShow()}
+      me={null}
+      refusal={null}
+      complaint={null}
+      connection="online"
+      answerNote={null}
+      onJoin={() => {}}
+      onSubmitAnswer={() => {}}
+      {...over}
+    />
+  );
+
+  describe('Backbone bracket controls', () => {
+    it('offers trim control when cull ends with > 8 survivors, and trims to 8', () => {
+      const onTrimCull = vi.fn();
+      // 10 survivors after 1 question
+      const state: ShownState = {
+        ...aShow(roster10, 'revealed'),
+        asked: [theQuestion.id],
+        question: null,
+        answer: null,
+      };
+
+      render(backbone(state, { onTrimCull }));
+
+      expect(screen.getByText(copy.backbone.trimHeading)).toBeTruthy();
+      expect(screen.getByText(copy.backbone.trimInstruction)).toBeTruthy();
+
+      // Check 8 checkboxes
+      const checkboxes = screen.getAllByRole('checkbox');
+      expect(checkboxes).toHaveLength(10);
+      for (let i = 0; i < 8; i++) {
+        fireEvent.click(checkboxes[i]!);
+      }
+
+      const confirmButton = screen.getByRole('button', { name: copy.backbone.trimConfirm });
+      expect((confirmButton as HTMLButtonElement).disabled).toBe(false);
+      fireEvent.click(confirmButton);
+
+      expect(onTrimCull).toHaveBeenCalledWith(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8']);
+    });
+
+    it('offers "Simulan ang Bracket" when survivors <= 8', () => {
+      const onSeedBracket = vi.fn();
+      const state: ShownState = {
+        ...aShow(roster8, 'revealed'),
+        asked: [theQuestion.id],
+        question: null,
+        answer: null,
+      };
+
+      render(backbone(state, { onSeedBracket }));
+
+      const seedButton = screen.getByRole('button', { name: copy.backbone.startBracket });
+      expect(seedButton).toBeTruthy();
+      fireEvent.click(seedButton);
+
+      expect(onSeedBracket).toHaveBeenCalledTimes(1);
+    });
+
+    it('displays ambiguous rules and bout information when bracket is active', () => {
+      const state: ShownState = {
+        ...aShow(roster8, 'started'),
+        bracket: aBracket(),
+      };
+
+      render(backbone(state));
+
+      expect(screen.getByText(copy.backbone.bracketHeading)).toBeTruthy();
+      expect(screen.getByText(copy.backbone.ambiguousRules)).toBeTruthy();
+      expect(screen.getByText(/Quarterfinals/)).toBeTruthy();
+    });
+
+    it('provides deliberate confirmed action to reverse a mistaken elimination', () => {
+      const onReverseElimination = vi.fn();
+      const rosterWithOut: RosterPlayer[] = [
+        ...roster8.slice(0, 7),
+        { ...p8, standing: 'out' as const },
+      ];
+      const state: ShownState = {
+        ...aShow(rosterWithOut, 'started'),
+        bracket: aBracket(),
+      };
+
+      render(backbone(state, { onReverseElimination }));
+
+      // Find reverse elimination button for p8
+      const reverseButton = screen.getByRole('button', { name: copy.backbone.reverseElimination });
+      expect(reverseButton).toBeTruthy();
+
+      // Click: should show confirmation
+      fireEvent.click(reverseButton);
+      const confirmButton = screen.getByRole('button', { name: copy.backbone.confirmReverse });
+      expect(confirmButton).toBeTruthy();
+
+      // Click confirm: triggers action
+      fireEvent.click(confirmButton);
+
+      expect(onReverseElimination).toHaveBeenCalledWith('p8');
+    });
+  });
+
+  describe('Stage bracket rendering', () => {
+    it('shows the surviving bracket tree throughout when bracket is active', () => {
+      const state: ShownState = {
+        ...aShow(roster8, 'started'),
+        bracket: aBracket(),
+      };
+
+      render(<Stage state={state} joinUrl={JOIN_URL} />);
+
+      expect(screen.getByText(copy.stage.bracketHeading)).toBeTruthy();
+      expect(screen.getByText('Quarterfinals')).toBeTruthy();
+      expect(screen.getByText('Semifinals')).toBeTruthy();
+      expect(screen.getByText('Final')).toBeTruthy();
+    });
+
+    it('never highlights the correct answer on Stage during a bout', () => {
+      const state: ShownState = {
+        ...asking({
+          roster: roster8,
+          phase: 'revealed',
+          bracket: aBracket(),
+          answer: {
+            questionId: theQuestion.id,
+            optionId: theQuestion.correctOptionId,
+            optionLabel: theQuestion.options.find((o) => o.id === theQuestion.correctOptionId)!.label,
+            submissions: [],
+          },
+        }),
+      };
+
+      const { container } = render(<Stage state={state} joinUrl={JOIN_URL} />);
+
+      // Acceptance Criteria 9: The correct answer is visible on the Backbone only, and never on the Stage
+      const correctOptionElements = container.querySelectorAll('.is-correct');
+      expect(correctOptionElements).toHaveLength(0);
+    });
+
+    it('shows winner callout on reveal during a bout', () => {
+      const bracket = aBracket();
+      bracket.bouts[0]!.winnerId = 'p1';
+      const state: ShownState = {
+        ...asking({
+          roster: roster8,
+          phase: 'revealed',
+          bracket,
+          answer: {
+            questionId: theQuestion.id,
+            optionId: theQuestion.correctOptionId,
+            optionLabel: theQuestion.options.find((o) => o.id === theQuestion.correctOptionId)!.label,
+            submissions: [],
+          },
+        }),
+      };
+
+      render(<Stage state={state} joinUrl={JOIN_URL} />);
+
+      expect(screen.getByText(copy.stage.winner('Ana'))).toBeTruthy();
+    });
+  });
+
+  describe('Player phone in bracket', () => {
+    it('tells waiting players they are waiting for their turn without showing question options', () => {
+      // p3 is waiting for bout 2; bout 1 is currently active between p1 and p2
+      const state: ShownState = {
+        ...asking({
+          roster: roster8,
+          bracket: aBracket(),
+        }),
+      };
+
+      render(phone({ state, me: p3 }));
+
+      expect(screen.getByText(copy.player.waitingForTurn)).toBeTruthy();
+      // Acceptance Criteria 8: waiting players told they are waiting for their turn (no question options)
+      expect(screen.queryByRole('button', { name: theQuestion.options[0]!.label })).toBeNull();
+      expect(screen.queryByText(theQuestion.prompt)).toBeNull();
+    });
+
+    it('tells a player who lost a bout immediately and plainly', () => {
+      const eliminatedP2: RosterPlayer = { ...p2, standing: 'out' };
+      const bracket = aBracket();
+      bracket.bouts[0]!.winnerId = 'p1';
+      const state: ShownState = {
+        ...asking({
+          roster: [p1, eliminatedP2, ...roster8.slice(2)],
+          phase: 'revealed',
+          bracket,
+          answer: {
+            questionId: theQuestion.id,
+            optionId: theQuestion.correctOptionId,
+            optionLabel: theQuestion.options.find((o) => o.id === theQuestion.correctOptionId)!.label,
+            submissions: [],
+          },
+        }),
+      };
+
+      render(phone({ state, me: eliminatedP2 }));
+
+      // Acceptance Criteria 8: losers told immediately and plainly
+      expect(screen.getByText(copy.player.boutLost)).toBeTruthy();
+      expect(screen.queryByRole('button', { name: theQuestion.options[0]!.label })).toBeNull();
+    });
+
+    it('shows question and active options to fighters in the current bout', () => {
+      const state: ShownState = {
+        ...asking({
+          roster: roster8,
+          bracket: aBracket(),
+        }),
+      };
+
+      render(phone({ state, me: p1 }));
+
+      expect(screen.getByText(theQuestion.prompt)).toBeTruthy();
+      for (const opt of theQuestion.options) {
+        expect(screen.getByRole('button', { name: opt.label })).toBeTruthy();
+      }
+    });
   });
 });

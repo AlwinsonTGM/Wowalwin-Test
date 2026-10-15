@@ -27,4 +27,12 @@ export type GameEvent =
   /** Ticket 03: the seeded roster is torn down whole, and real phones are not. */
   | { type: 'simulatedPlayersCleared' }
   /** The Presenter's rehearsal settings, held in state so every surface agrees. */
-  | { type: 'simulationSet'; armed: boolean; mode: SimulationMode };
+  | { type: 'simulationSet'; armed: boolean; mode: SimulationMode }
+  /** Ticket 04: The Cull survivors trimmed to 8 entrants. */
+  | { type: 'cullTrimmed'; survivorIds: string[] }
+  /** Ticket 04: Bracket seeded with entrants in pairing order, pinned seed optional. */
+  | { type: 'bracketSeeded'; entrants: string[]; seed?: number }
+  /** Ticket 04: Re-running a bout when neither Player submitted. */
+  | { type: 'boutRerun' }
+  /** Ticket 04: Deliberate confirmed reversal of a mistaken elimination. */
+  | { type: 'eliminationReversed'; playerId: string };

@@ -6,20 +6,20 @@ This is the highest-risk ticket in the project. The ambiguous outcomes are what 
 
 **Blocked by:** 03 — The cull.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] When the Cull ends with more than eight survivors, the Backbone offers a trim control and the presenters choose who advances
-- [ ] Bracket pairings are seeded from the injected generator, so a pinned seed reproduces the same bracket on every run
-- [ ] A bout presents one question to two Players and runs ten seconds of answering, five of suspense, and five to show the winner
-- [ ] The earliest correct submission wins the bout, regardless of when the other Player submitted and regardless of whether the first submission was correct
-- [ ] When every submission is wrong and at least one Player submitted, the earliest submitter is eliminated and the other Player advances
-- [ ] When neither Player submitted, nobody is eliminated and the operator re-runs the bout — the rule that guarantees the bracket always converges
-- [ ] The Bracket advances itself once a bout resolves, without the operator wiring winners onward by hand
-- [ ] The Stage shows the surviving Bracket throughout so the room can track who is left
-- [ ] The correct answer is visible on the Backbone only, and never on the Stage
-- [ ] A mistaken elimination can be reversed, but only through a deliberate confirmed action
-- [ ] A Player who is waiting for their turn is told so on their phone rather than left staring at an unanswered question
-- [ ] A Player who lost a bout is told immediately and plainly on their own phone
+- [x] When the Cull ends with more than eight survivors, the Backbone offers a trim control and the presenters choose who advances
+- [x] Bracket pairings are seeded from the injected generator, so a pinned seed reproduces the same bracket on every run
+- [x] A bout presents one question to two Players and runs ten seconds of answering, five of suspense, and five to show the winner
+- [x] The earliest correct submission wins the bout, regardless of when the other Player submitted and regardless of whether the first submission was correct
+- [x] When every submission is wrong and at least one Player submitted, the earliest submitter is eliminated and the other Player advances
+- [x] When neither Player submitted, nobody is eliminated and the operator re-runs the bout — the rule that guarantees the bracket always converges
+- [x] The Bracket advances itself once a bout resolves, without the operator wiring winners onward by hand
+- [x] The Stage shows the surviving Bracket throughout so the room can track who is left
+- [x] The correct answer is visible on the Backbone only, and never on the Stage
+- [x] A mistaken elimination can be reversed, but only through a deliberate confirmed action
+- [x] A Player who is waiting for their turn is told so on their phone rather than left staring at an unanswered question
+- [x] A Player who lost a bout is told immediately and plainly on their own phone
 
 ## Comments
 
@@ -79,3 +79,11 @@ Roughly 13 questions: about 4 for the Cull at a realistic two-thirds answer rate
 first box — cannot be tested at all.
 
 Build order from here: **06, then 04**, then 05, then 08.
+
+### Implemented and Verified on 2026-10-15
+
+- **Cull floor guarantee**: Invariant preserved in `revealAnswer` — Cull never ends with zero survivors (last submitter survives; if 0 submissions, first joined player still in survives).
+- **Trimming and Seeding**: Operators can trim >8 Cull survivors down to 8 via `planTrimCull`. `planSeedBracket` uses deterministic Mulberry32 PRNG to pair entrants reproducibly. Supports 1..8 players with balanced bye placement and auto-advancement.
+- **Bout cycle and resolution**: 20s cycle (10s answer, 5s suspense, 5s winner timer) with automatic advance. Earliest correct answer wins; all wrong eliminates earliest submitter; tie/no-submissions eliminates nobody and permits operator re-run via `planRerunBout`.
+- **Surfaces**: Stage displays the live bracket tree throughout with zero answer leakage during bouts (ADR-0003). Backbone provides full tournament controls and confirmed elimination reversals. Player phones plainly tell waiting players and eliminated players their status without leaking bout questions.
+- **QA Audit**: Passed full audit by `@Checker` (`STATUS: PASS`). 238 tests passing, clean typecheck and production build.

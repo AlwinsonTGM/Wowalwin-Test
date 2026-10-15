@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { copy, showConfig } from '../content/show.ts';
-import type { Player as RosterPlayer, ShownState } from '../game/machine.ts';
+import { activeBout, isPlayerInCurrentBout, type Player as RosterPlayer, type ShownState } from '../game/machine.ts';
 import type { Connection } from './useShow.ts';
 import { useSecondsLeft } from './clock.ts';
 
@@ -32,13 +32,21 @@ export function Player({
     onJoin(name);
   };
 
+  const isBout = Boolean(state.bracket);
+  const currentBout = isBout ? activeBout(state) : null;
+  const inBout = me !== null && isBout && isPlayerInCurrentBout(state, me.id);
+  const isWaitingInBracket = me !== null && isBout && me.standing === 'in' && !inBout;
+  const isEntrant = isBout && me !== null && (state.bracket?.bouts.some((b) => b.player1Id === me.id || b.player2Id === me.id) ?? false);
+  const lostBout = isBout && me !== null && me.standing === 'out' && isEntrant;
+  const isFinalist = isBout && me !== null && state.bracket?.finalistId === me.id;
+  const wonBout = inBout && state.phase === 'revealed' && currentBout?.winnerId === me?.id;
+  const tiedBout = inBout && state.phase === 'revealed' && currentBout?.winnerId === null && state.answer !== null;
+
   const question = state.question ?? null;
   const open = state.phase === 'answering';
   const seconds = useSecondsLeft(open && question ? question.askedAt : null);
-  // A phone that was turned away still watches, and a phone whose Player is out
-  // still works. Neither is a dead screen, so both keep seeing the question.
-  const playing = me !== null && me.standing === 'in';
-  const watching = me !== null || refusal !== null;
+  const playing = me !== null && me.standing === 'in' && (!isBout || inBout);
+  const showQuestion = question !== null && (isBout ? inBout : (me !== null || refusal !== null));
 
   return (
     <main className="surface surface--player">
@@ -67,7 +75,19 @@ export function Player({
         </form>
       )}
 
-      {question && watching && (
+      {isWaitingInBracket && <p className="waiting">{copy.player.waitingForTurn}</p>}
+
+      {lostBout && <p className="refused">{copy.player.boutLost}</p>}
+
+      {me?.standing === 'out' && !lostBout && <p className="refused">{copy.player.eliminated}</p>}
+
+      {isFinalist && <p className="won">{copy.stage.finalist(me.name)}</p>}
+
+      {wonBout && !isFinalist && <p className="won">{copy.player.boutWon}</p>}
+
+      {tiedBout && <p className="warning">{copy.stage.tieNoSubmissions}</p>}
+
+      {showQuestion && (
         <section className="question">
           <h2 className="prompt">{question.prompt}</h2>
           {playing && (
@@ -94,9 +114,9 @@ export function Player({
         </section>
       )}
 
-      {me?.standing === 'out' && <p className="refused">{copy.player.eliminated}</p>}
-
-      {me && question === null && state.phase === 'joining' && <p className="waiting">{copy.player.waitingForShow}</p>}
+      {me && question === null && !isBout && state.phase === 'joining' && (
+        <p className="waiting">{copy.player.waitingForShow}</p>
+      )}
     </main>
   );
 }

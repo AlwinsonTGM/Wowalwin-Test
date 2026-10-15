@@ -12,9 +12,13 @@ import {
   planNextQuestion,
   planReveal,
   planResume,
+  planRerunBout,
+  planReverseElimination,
+  planSeedBracket,
   planSimulateAnswers,
   planSimulatePlayers,
   planSubmitAnswer,
+  planTrimCull,
   shown,
 } from '../game/machine.ts';
 import type { GameEvent, SimulationMode } from '../game/events.ts';
@@ -50,6 +54,16 @@ const parse = (raw: RawData): ClientMessage | null => {
     }
     if (message?.kind === 'submitAnswer') {
       return { kind: 'submitAnswer', optionId: typeof message.optionId === 'string' ? message.optionId : '' };
+    }
+    if (message?.kind === 'trimCull' && Array.isArray(message.survivorIds)) {
+      return { kind: 'trimCull', survivorIds: message.survivorIds.filter((id) => typeof id === 'string') };
+    }
+    if (message?.kind === 'seedBracket') {
+      return { kind: 'seedBracket', seed: typeof message.seed === 'number' ? message.seed : undefined };
+    }
+    if (message?.kind === 'rerunBout') return { kind: 'rerunBout' };
+    if (message?.kind === 'reverseElimination' && typeof message.playerId === 'string') {
+      return { kind: 'reverseElimination', playerId: message.playerId };
     }
     if (message?.kind !== 'join') return null;
 
@@ -107,6 +121,8 @@ export async function startShowServer({
    * has already been revealed.
    */
   let windowTimer: NodeJS.Timeout | undefined;
+  let suspenseTimer: NodeJS.Timeout | undefined;
+  let winnerTimer: NodeJS.Timeout | undefined;
 
   const record = (event: GameEvent) => {
     events.push(event);
@@ -117,7 +133,7 @@ export async function startShowServer({
     const payload = JSON.stringify({ kind: 'state', state: shown(state) } satisfies ServerMessage);
     for (const client of wss.clients) if (client.readyState === client.OPEN) client.send(payload);
 
-    armAnswerWindow();
+    armTimers();
 
     // An armed rehearsal room answers the moment its question goes up, not when
     // somebody remembers to press anything. Keyed off the question rather than
@@ -127,19 +143,43 @@ export async function startShowServer({
     }
   };
 
-  const armAnswerWindow = () => {
+  const armTimers = () => {
     clearTimeout(windowTimer);
-    const question = state.question;
-    if (state.phase !== 'answering' || !question) return;
+    clearTimeout(suspenseTimer);
+    clearTimeout(winnerTimer);
 
-    // Counted from when the question went up rather than from now, so a server
-    // that restarts mid-question closes the window when it was always going to
-    // close, not ten seconds after the restart.
-    const leftMs = showConfig.timings.answerSeconds * 1000 - (Date.now() - question.askedAt);
-    windowTimer = setTimeout(() => {
-      const plan = planCloseAnswerWindow(state);
-      if (plan.outcome === 'closed') record(plan.event);
-    }, Math.max(0, leftMs));
+    const question = state.question;
+    if (state.phase === 'answering' && question) {
+      const leftMs = showConfig.timings.answerSeconds * 1000 - (Date.now() - question.askedAt);
+      windowTimer = setTimeout(() => {
+        const plan = planCloseAnswerWindow(state);
+        if (plan.outcome === 'closed') record(plan.event);
+      }, Math.max(0, leftMs));
+      return;
+    }
+
+    // In a bout, auto-advance through suspense (5s) and winner display (5s)
+    if (state.bracket !== null) {
+      if (state.phase === 'revealPending') {
+        suspenseTimer = setTimeout(() => {
+          const plan = planReveal(state);
+          if (plan.outcome === 'revealed') record(plan.event);
+        }, showConfig.timings.suspenseSeconds * 1000);
+      } else if (state.phase === 'revealed' && state.bracket.currentBoutId !== null) {
+        const currentBout = state.bracket.bouts.find((b) => b.id === state.bracket!.currentBoutId);
+        if (state.bracket.finalistId === null && currentBout && currentBout.winnerId !== null) {
+          const nextBout = state.bracket.bouts.find(
+            (b) => b.winnerId === null && b.player1Id !== null && b.player2Id !== null,
+          );
+          if (nextBout) {
+            winnerTimer = setTimeout(() => {
+              const plan = planNextQuestion(state, Date.now());
+              if (plan.outcome === 'presented') record(plan.event);
+            }, showConfig.timings.winnerSeconds * 1000);
+          }
+        }
+      }
+    }
   };
 
   // A Player with the show link open twice is still one Player: only the last
@@ -240,6 +280,34 @@ export async function startShowServer({
         return;
       }
 
+      if (message.kind === 'trimCull') {
+        if (!isPresenter) return;
+        const plan = planTrimCull(state, message.survivorIds);
+        if (plan.outcome === 'trimmed') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'seedBracket') {
+        if (!isPresenter) return;
+        const plan = planSeedBracket(state, message.seed);
+        if (plan.outcome === 'seeded') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'rerunBout') {
+        if (!isPresenter) return;
+        const plan = planRerunBout(state);
+        if (plan.outcome === 'rerun') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'reverseElimination') {
+        if (!isPresenter) return;
+        const plan = planReverseElimination(state, message.playerId);
+        if (plan.outcome === 'reversed') record(plan.event);
+        return;
+      }
+
       const known = message.token;
       const resume = known ? planResume(state, known) : null;
       if (resume?.outcome === 'resumed') {
@@ -277,7 +345,7 @@ export async function startShowServer({
 
   // A log rebuilt from disk can already be mid-question; the window still has
   // to close on its own without anyone pressing anything.
-  armAnswerWindow();
+  armTimers();
 
   return {
     port: (http.address() as { port: number }).port,
@@ -285,6 +353,8 @@ export async function startShowServer({
     close: () =>
       new Promise<void>((done) => {
         clearTimeout(windowTimer);
+        clearTimeout(suspenseTimer);
+        clearTimeout(winnerTimer);
         for (const client of wss.clients) client.terminate();
         wss.close();
         http.closeAllConnections();

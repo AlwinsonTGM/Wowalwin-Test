@@ -18,6 +18,10 @@ export const showConfig = {
     answerSeconds: 10,
     /** How often the tick sounds while the answer window is open. */
     tickSeconds: 1,
+    /** Suspense pause before bout reveal. */
+    suspenseSeconds: 5,
+    /** Time the winner is displayed before advancing. */
+    winnerSeconds: 5,
   },
   /**
    * Where the presenters drop their audio files, relative to the site root.
@@ -161,6 +165,28 @@ export const copy = {
     simLocked: 'Hindi na maaaring baguhan ang roster kapag nagsimula na ang show.',
     simulatedBadge: 'Sim',
 
+    /** Trim and Bracket controls (ticket 04) */
+    trimHeading: 'Bawasan sa 8 ang nakalaan',
+    trimInstruction: 'Pumili ng 8 Players na papasok sa bracket.',
+    trimConfirm: 'Kumpirmahin ang 8 Players',
+    trimCount: (selected: number) => `${selected} / 8 napili`,
+    startBracket: 'Simulan ang Bracket',
+    bracketHeading: 'Ang Bracket',
+    currentBoutHeading: 'Kasalukuyang Bout',
+    rerunBout: 'Ulitin ang bout',
+    reverseElimination: 'Ibalik ang pagkakatanggal',
+    confirmReverse: 'Kumpirmahin ang pagbalik',
+    cancelReverse: 'Kanselahin',
+    ambiguousRulesHeading: 'Patakaran sa Bout',
+    ambiguousRules:
+      'Patakaran: pinakamabilis na tamang sagot ang panalo. Kung parehong mali, ang unang sumagot ang tanggal at ang isa ang aabante. Kung walang sumagot, ulitin ang bout.',
+    finalistHeading: 'Ang Finalist',
+    rounds: {
+      quarter: 'Quarterfinals',
+      semi: 'Semifinals',
+      final: 'Final',
+    },
+
     /** One control for every sound in the show. */
     mute: 'Patayin ang tunog',
     unmute: 'Buksan ang tunog',
@@ -181,6 +207,17 @@ export const copy = {
     answerHeading: 'Ang sagot',
     survived: 'Nakalaan',
     eliminated: 'Tapos na',
+    bracketHeading: 'Ang Bracket',
+    boutHeading: (round: string) => `Bout: ${round}`,
+    vs: 'laban kay',
+    winner: (name: string) => `Panalo: ${name}!`,
+    tieNoSubmissions: 'Walang sumagot! Uulitin ang bout.',
+    finalist: (name: string) => `Ang Finalist: ${name}!`,
+    rounds: {
+      quarter: 'Quarterfinals',
+      semi: 'Semifinals',
+      final: 'Final',
+    },
   },
 
   player: {
@@ -214,5 +251,8 @@ export const copy = {
     },
     /** Said once, on the phone that it happened to, and then it keeps working. */
     eliminated: 'Tapos na ang laban mo. Manood ka lang.',
+    waitingForTurn: 'Naghihintay ng iyong laban…',
+    boutWon: 'Panalo ka sa bout! Pasok ka sa susunod na laban.',
+    boutLost: 'Talo ka sa bout. Tapos na ang laban mo.',
   },
 } as const;

@@ -13,7 +13,12 @@ export type ClientMessage =
   | { kind: 'simulatePlayers'; count: number }
   | { kind: 'clearSimulated' }
   | { kind: 'simulateAnswers' }
-  | { kind: 'setSimulation'; armed: boolean; mode: SimulationMode };
+  | { kind: 'setSimulation'; armed: boolean; mode: SimulationMode }
+  /** Ticket 04: The bracket controls */
+  | { kind: 'trimCull'; survivorIds: string[] }
+  | { kind: 'seedBracket'; seed?: number }
+  | { kind: 'rerunBout' }
+  | { kind: 'reverseElimination'; playerId: string };
 
 /** What the server tells every surface. */
 export type ServerMessage =

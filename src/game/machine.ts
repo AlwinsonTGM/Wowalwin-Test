@@ -40,6 +40,25 @@ export type RevealedAnswer = {
   submissions: Submission[];
 };
 
+export type BoutRound = 'quarter' | 'semi' | 'final';
+
+export type Bout = {
+  id: string;
+  round: BoutRound;
+  index: number;
+  player1Id: string | null;
+  player2Id: string | null;
+  winnerId: string | null;
+  resolvedBy?: 'bout' | 'bye';
+};
+
+export type BracketState = {
+  bouts: Bout[];
+  currentBoutId: string | null;
+  finalistId: string | null;
+  seed?: number;
+};
+
 export type GameState = {
   phase: Phase;
   roster: Player[];
@@ -61,6 +80,8 @@ export type GameState = {
    * that every surface tells the same story.
    */
   simulation: { armed: boolean; mode: SimulationMode };
+  /** Ticket 04: The Bracket single-elimination tournament */
+  bracket: BracketState | null;
 };
 
 /** What a surface is given: the same state, minus the room's secret. */
@@ -117,6 +138,200 @@ const raise = (state: GameState, questionId: string, at: number): GameState => {
   };
 };
 
+/**
+ * Fast, deterministic 32-bit PRNG (Mulberry32).
+ * Given a numeric seed, returns a function `() => number` producing numbers in [0, 1).
+ */
+export function createRng(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** In-place Fisher-Yates shuffle using an injected generator. */
+export function shuffle<T>(items: readonly T[], rng: () => number = Math.random): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const temp = result[i]!;
+    result[i] = result[j]!;
+    result[j] = temp;
+  }
+  return result;
+}
+
+export function createEmptyBouts(): Bout[] {
+  return [
+    { id: 'bout-1', round: 'quarter', index: 0, player1Id: null, player2Id: null, winnerId: null },
+    { id: 'bout-2', round: 'quarter', index: 1, player1Id: null, player2Id: null, winnerId: null },
+    { id: 'bout-3', round: 'quarter', index: 2, player1Id: null, player2Id: null, winnerId: null },
+    { id: 'bout-4', round: 'quarter', index: 3, player1Id: null, player2Id: null, winnerId: null },
+    { id: 'bout-5', round: 'semi', index: 4, player1Id: null, player2Id: null, winnerId: null },
+    { id: 'bout-6', round: 'semi', index: 5, player1Id: null, player2Id: null, winnerId: null },
+    { id: 'bout-7', round: 'final', index: 6, player1Id: null, player2Id: null, winnerId: null },
+  ];
+}
+
+/** Seeds up to 8 entrants into the 8 quarterfinal slots, balancing byes. */
+export function seedEntrantsIntoSlots(entrants: string[]): (string | null)[] {
+  const n = entrants.length;
+  if (n >= 8) return entrants.slice(0, 8);
+  if (n === 7) return [entrants[0]!, null, entrants[1]!, entrants[2]!, entrants[3]!, entrants[4]!, entrants[5]!, entrants[6]!];
+  if (n === 6) return [entrants[0]!, null, entrants[1]!, entrants[2]!, entrants[3]!, null, entrants[4]!, entrants[5]!];
+  if (n === 5) return [entrants[0]!, null, entrants[1]!, null, entrants[2]!, null, entrants[3]!, entrants[4]!];
+  if (n === 4) return [entrants[0]!, null, entrants[1]!, null, entrants[2]!, null, entrants[3]!, null];
+  if (n === 3) return [entrants[0]!, null, null, null, entrants[1]!, null, entrants[2]!, null];
+  if (n === 2) return [entrants[0]!, null, null, null, entrants[1]!, null, null, null];
+  if (n === 1) return [entrants[0]!, null, null, null, null, null, null, null];
+  return Array(8).fill(null);
+}
+
+/**
+ * Propagates byes and winners forward through the 7-bout single-elimination bracket.
+ * 0..3: Quarterfinals (0 & 1 -> 4, 2 & 3 -> 5)
+ * 4..5: Semifinals (4 & 5 -> 6)
+ * 6: Final (6 -> finalistId)
+ */
+export function propagateBracket(initialBouts: Bout[]): { bouts: Bout[]; finalistId: string | null } {
+  const bouts = initialBouts.map((b) => ({ ...b }));
+  let changed = true;
+  let finalistId: string | null = null;
+
+  while (changed) {
+    changed = false;
+    for (let i = 0; i < bouts.length; i++) {
+      const bout = bouts[i]!;
+
+      // 1. Resolve byes for unresolved bouts
+      if (bout.winnerId === null) {
+        if (i < 4) {
+          // Quarterfinals
+          if (bout.player1Id !== null && bout.player2Id === null) {
+            bout.winnerId = bout.player1Id;
+            bout.resolvedBy = 'bye';
+            changed = true;
+          } else if (bout.player1Id === null && bout.player2Id !== null) {
+            bout.winnerId = bout.player2Id;
+            bout.resolvedBy = 'bye';
+            changed = true;
+          }
+        } else if (i === 4) {
+          // Semifinal 1 (feeders are 0 and 1)
+          const qf1Empty = bouts[0]!.player1Id === null && bouts[0]!.player2Id === null;
+          const qf2Empty = bouts[1]!.player1Id === null && bouts[1]!.player2Id === null;
+          if (bout.player1Id !== null && qf2Empty && bout.player2Id === null) {
+            bout.winnerId = bout.player1Id;
+            bout.resolvedBy = 'bye';
+            changed = true;
+          } else if (bout.player2Id !== null && qf1Empty && bout.player1Id === null) {
+            bout.winnerId = bout.player2Id;
+            bout.resolvedBy = 'bye';
+            changed = true;
+          }
+        } else if (i === 5) {
+          // Semifinal 2 (feeders are 2 and 3)
+          const qf3Empty = bouts[2]!.player1Id === null && bouts[2]!.player2Id === null;
+          const qf4Empty = bouts[3]!.player1Id === null && bouts[3]!.player2Id === null;
+          if (bout.player1Id !== null && qf4Empty && bout.player2Id === null) {
+            bout.winnerId = bout.player1Id;
+            bout.resolvedBy = 'bye';
+            changed = true;
+          } else if (bout.player2Id !== null && qf3Empty && bout.player1Id === null) {
+            bout.winnerId = bout.player2Id;
+            bout.resolvedBy = 'bye';
+            changed = true;
+          }
+        } else if (i === 6) {
+          // Final (feeders are 4 and 5)
+          const sf1Empty =
+            bouts[4]!.player1Id === null && bouts[4]!.player2Id === null && bouts[4]!.winnerId === null;
+          const sf2Empty =
+            bouts[5]!.player1Id === null && bouts[5]!.player2Id === null && bouts[5]!.winnerId === null;
+          if (bout.player1Id !== null && sf2Empty && bout.player2Id === null) {
+            bout.winnerId = bout.player1Id;
+            bout.resolvedBy = 'bye';
+            finalistId = bout.winnerId;
+            changed = true;
+          } else if (bout.player2Id !== null && sf1Empty && bout.player1Id === null) {
+            bout.winnerId = bout.player2Id;
+            bout.resolvedBy = 'bye';
+            finalistId = bout.winnerId;
+            changed = true;
+          }
+        }
+      }
+
+      // 2. Propagate winners forward
+      if (bout.winnerId !== null) {
+        if (i === 0 && bouts[4]!.player1Id !== bout.winnerId) {
+          bouts[4]!.player1Id = bout.winnerId;
+          changed = true;
+        } else if (i === 1 && bouts[4]!.player2Id !== bout.winnerId) {
+          bouts[4]!.player2Id = bout.winnerId;
+          changed = true;
+        } else if (i === 2 && bouts[5]!.player1Id !== bout.winnerId) {
+          bouts[5]!.player1Id = bout.winnerId;
+          changed = true;
+        } else if (i === 3 && bouts[5]!.player2Id !== bout.winnerId) {
+          bouts[5]!.player2Id = bout.winnerId;
+          changed = true;
+        } else if (i === 4 && bouts[6]!.player1Id !== bout.winnerId) {
+          bouts[6]!.player1Id = bout.winnerId;
+          changed = true;
+        } else if (i === 5 && bouts[6]!.player2Id !== bout.winnerId) {
+          bouts[6]!.player2Id = bout.winnerId;
+          changed = true;
+        } else if (i === 6) {
+          finalistId = bout.winnerId;
+        }
+      }
+    }
+  }
+
+  return { bouts, finalistId };
+}
+
+export type BoutResolution =
+  | { outcome: 'winner'; winnerId: string; eliminatedId: string; reason: 'earliestCorrect' | 'opponentEliminated' }
+  | { outcome: 'tieNoSubmissions' };
+
+/**
+ * Settles a 1-on-1 bout according to Ticket 04 rules:
+ * 1. Earliest correct submission wins the bout, regardless of when the other Player submitted
+ *    and regardless of whether the first submission was correct.
+ * 2. When every submission is wrong and at least one Player submitted, the earliest submitter is
+ *    eliminated and the other Player advances.
+ * 3. When neither Player submitted, nobody is eliminated and the operator re-runs the bout.
+ */
+export function resolveBout(
+  player1Id: string,
+  player2Id: string,
+  correctOptionId: string,
+  submissions: readonly Submission[],
+): BoutResolution {
+  const boutSubs = submissions.filter((s) => s.playerId === player1Id || s.playerId === player2Id);
+
+  const earliestCorrect = boutSubs.find((s) => s.optionId === correctOptionId);
+  if (earliestCorrect) {
+    const winnerId = earliestCorrect.playerId;
+    const eliminatedId = winnerId === player1Id ? player2Id : player1Id;
+    return { outcome: 'winner', winnerId, eliminatedId, reason: 'earliestCorrect' };
+  }
+
+  if (boutSubs.length > 0) {
+    const earliestWrong = boutSubs[0]!;
+    const eliminatedId = earliestWrong.playerId;
+    const winnerId = eliminatedId === player1Id ? player2Id : player1Id;
+    return { outcome: 'winner', winnerId, eliminatedId, reason: 'opponentEliminated' };
+  }
+
+  return { outcome: 'tieNoSubmissions' };
+}
+
 const revealAnswer = (state: GameState): GameState => {
   const question = state.question;
   if (!question) return state;
@@ -134,11 +349,69 @@ const revealAnswer = (state: GameState): GameState => {
     submissions: state.sealed,
   };
 
+  // If in the Bracket:
+  if (state.bracket !== null && state.bracket.currentBoutId !== null) {
+    const bout = state.bracket.bouts.find((b) => b.id === state.bracket!.currentBoutId);
+    if (bout && bout.player1Id !== null && bout.player2Id !== null) {
+      const resolution = resolveBout(bout.player1Id, bout.player2Id, option.id, state.sealed);
+
+      if (resolution.outcome === 'winner') {
+        const updatedBouts = state.bracket.bouts.map((b) =>
+          b.id === bout.id ? { ...b, winnerId: resolution.winnerId, resolvedBy: 'bout' as const } : b,
+        );
+        const { bouts: propagatedBouts, finalistId } = propagateBracket(updatedBouts);
+        const nextBout = propagatedBouts.find(
+          (b) => b.winnerId === null && b.player1Id !== null && b.player2Id !== null,
+        );
+
+        return {
+          ...state,
+          phase: 'revealed',
+          sealed: [],
+          answer,
+          roster: state.roster.map((player) =>
+            player.id === resolution.eliminatedId ? { ...player, standing: 'out' } : player,
+          ),
+          bracket: {
+            ...state.bracket,
+            bouts: propagatedBouts,
+            currentBoutId: bout.id,
+            finalistId,
+          },
+        };
+      }
+
+      // Neither Player submitted: nobody is eliminated! Operator can re-run the bout.
+      return {
+        ...state,
+        phase: 'revealed',
+        sealed: [],
+        answer,
+      };
+    }
+  }
+
   // The cull resolves in the same event that reveals the answer, which is what
   // makes the grid flip all at once: one event, one new state, every name.
   const answeredRight = new Set(
     state.sealed.filter((submission) => submission.optionId === option.id).map((submission) => submission.playerId),
   );
+
+  let survivorIds = answeredRight;
+  // Cull floor guarantee (03 amendment): The Cull never empties the room.
+  // On Cull reveal, if no one answered correctly: the last submitter keeps their place;
+  // if nobody submitted, the first joined Player who was still in keeps their place.
+  if (survivorIds.size === 0) {
+    if (state.sealed.length > 0) {
+      const lastSubmitter = state.sealed[state.sealed.length - 1]!;
+      survivorIds = new Set([lastSubmitter.playerId]);
+    } else {
+      const firstIn = state.roster.find((player) => player.standing === 'in');
+      if (firstIn) {
+        survivorIds = new Set([firstIn.id]);
+      }
+    }
+  }
 
   return {
     ...state,
@@ -147,7 +420,7 @@ const revealAnswer = (state: GameState): GameState => {
     answer,
     // A correct submission survives and everyone else is out — which includes
     // every Player who never submitted, and every Player already out.
-    roster: state.roster.map((player) => ({ ...player, standing: answeredRight.has(player.id) ? 'in' : 'out' })),
+    roster: state.roster.map((player) => ({ ...player, standing: survivorIds.has(player.id) ? 'in' : 'out' })),
   };
 };
 
@@ -176,8 +449,22 @@ export function fold(events: GameEvent[]): GameState {
           return setConnected(state, event.playerId, true);
         case 'showStarted':
           return { ...state, phase: 'started' };
-        case 'questionPresented':
-          return raise(state, event.questionId, event.at);
+        case 'questionPresented': {
+          const s = raise(state, event.questionId, event.at);
+          if (s.bracket !== null) {
+            const nextBout = s.bracket.bouts.find(
+              (b) => b.winnerId === null && b.player1Id !== null && b.player2Id !== null,
+            );
+            return {
+              ...s,
+              bracket: {
+                ...s.bracket,
+                currentBoutId: nextBout ? nextBout.id : null,
+              },
+            };
+          }
+          return s;
+        }
         case 'answerSubmitted':
           return { ...state, sealed: [...state.sealed, { playerId: event.playerId, optionId: event.optionId }] };
         case 'answerWindowClosed':
@@ -189,6 +476,96 @@ export function fold(events: GameEvent[]): GameState {
           return { ...state, roster: state.roster.filter((player) => !player.simulated) };
         case 'simulationSet':
           return { ...state, simulation: { armed: event.armed, mode: event.mode } };
+        case 'cullTrimmed': {
+          const survivorSet = new Set(event.survivorIds);
+          return {
+            ...state,
+            roster: state.roster.map((player) => ({
+              ...player,
+              standing: survivorSet.has(player.id) ? player.standing : 'out',
+            })),
+          };
+        }
+        case 'bracketSeeded': {
+          const empty = createEmptyBouts();
+          const slots = seedEntrantsIntoSlots(event.entrants);
+          empty[0]!.player1Id = slots[0] ?? null; empty[0]!.player2Id = slots[1] ?? null;
+          empty[1]!.player1Id = slots[2] ?? null; empty[1]!.player2Id = slots[3] ?? null;
+          empty[2]!.player1Id = slots[4] ?? null; empty[2]!.player2Id = slots[5] ?? null;
+          empty[3]!.player1Id = slots[6] ?? null; empty[3]!.player2Id = slots[7] ?? null;
+
+          const { bouts, finalistId } = propagateBracket(empty);
+          const currentBout = bouts.find(
+            (b) => b.winnerId === null && b.player1Id !== null && b.player2Id !== null,
+          );
+
+          return {
+            ...state,
+            bracket: {
+              bouts,
+              currentBoutId: currentBout ? currentBout.id : null,
+              finalistId,
+              seed: event.seed,
+            },
+          };
+        }
+        case 'boutRerun': {
+          return {
+            ...state,
+            phase: 'started',
+            question: null,
+            answer: null,
+            sealed: [],
+          };
+        }
+        case 'eliminationReversed': {
+          let nextBracket = state.bracket;
+          if (state.bracket !== null) {
+            const boutIndex = state.bracket.bouts.findIndex(
+              (b) =>
+                (b.player1Id === event.playerId || b.player2Id === event.playerId) &&
+                b.winnerId !== null &&
+                b.winnerId !== event.playerId,
+            );
+            if (boutIndex !== -1) {
+              const bout = state.bracket.bouts[boutIndex]!;
+              const formerWinner = bout.winnerId;
+              const bouts = state.bracket.bouts.map((b, idx) =>
+                idx === boutIndex ? { ...b, winnerId: null, resolvedBy: undefined } : { ...b },
+              );
+              for (let i = boutIndex + 1; i < bouts.length; i++) {
+                if (bouts[i]!.player1Id === formerWinner) {
+                  bouts[i]!.player1Id = null;
+                  bouts[i]!.winnerId = null;
+                  bouts[i]!.resolvedBy = undefined;
+                }
+                if (bouts[i]!.player2Id === formerWinner) {
+                  bouts[i]!.player2Id = null;
+                  bouts[i]!.winnerId = null;
+                  bouts[i]!.resolvedBy = undefined;
+                }
+              }
+              const { bouts: propagatedBouts, finalistId } = propagateBracket(bouts);
+              const currentBout = propagatedBouts.find(
+                (b) => b.winnerId === null && b.player1Id !== null && b.player2Id !== null,
+              );
+              nextBracket = {
+                ...state.bracket,
+                bouts: propagatedBouts,
+                currentBoutId: currentBout ? currentBout.id : null,
+                finalistId,
+              };
+            }
+          }
+
+          return {
+            ...state,
+            bracket: nextBracket,
+            roster: state.roster.map((player) =>
+              player.id === event.playerId ? { ...player, standing: 'in' } : player,
+            ),
+          };
+        }
       }
     },
     {
@@ -199,6 +576,7 @@ export function fold(events: GameEvent[]): GameState {
       answer: null,
       sealed: [],
       simulation: { armed: false, mode: 'mixed' },
+      bracket: null,
     },
   );
 }
@@ -288,15 +666,32 @@ export type PresentPlan =
  * against it, and not before the show has started. And not once the cull has
  * finished with the room; ticket 04 extends this to the bracket's own supply.
  */
-export function planNextQuestion(state: GameState, at: number, pool: PoolName = 'cull'): PresentPlan {
+export function planNextQuestion(state: GameState, at: number, pool?: PoolName): PresentPlan {
   if (state.phase === 'joining' || state.phase === 'answering' || state.phase === 'revealPending') {
     return { outcome: 'notReady' };
   }
 
-  const over = cullOver(state, pool);
+  // Bracket questions
+  if (state.bracket !== null) {
+    if (state.bracket.finalistId !== null) return { outcome: 'cullComplete' };
+    const nextBout = state.bracket.bouts.find(
+      (b) => b.winnerId === null && b.player1Id !== null && b.player2Id !== null,
+    );
+    if (!nextBout) return { outcome: 'notReady' };
+
+    const boutPool: PoolName = pool ?? 'bout';
+    const next = questionsIn(boutPool).find((question) => !state.asked.includes(question.id));
+    if (!next) return { outcome: 'queueEmpty' };
+
+    return { outcome: 'presented', event: { type: 'questionPresented', questionId: next.id, at } };
+  }
+
+  // Cull questions
+  const cullPool: PoolName = pool ?? 'cull';
+  const over = cullOver(state, cullPool);
   if (over !== null) return { outcome: over };
 
-  const next = questionsIn(pool).find((question) => !state.asked.includes(question.id));
+  const next = questionsIn(cullPool).find((question) => !state.asked.includes(question.id));
   if (!next) return { outcome: 'queueEmpty' };
 
   return { outcome: 'presented', event: { type: 'questionPresented', questionId: next.id, at } };
@@ -321,6 +716,15 @@ export function planSubmitAnswer(state: GameState, answer: { playerId: string; o
   // this round's, and why the cull cannot creep back up.
   const player = state.roster.find((candidate) => candidate.id === answer.playerId);
   if (!player || player.standing === 'out') return { outcome: 'notPlaying' };
+
+  // In the bracket, only the two active Players in the current bout can submit
+  if (state.bracket !== null && state.bracket.currentBoutId !== null) {
+    const bout = state.bracket.bouts.find((b) => b.id === state.bracket!.currentBoutId);
+    if (!bout || (bout.player1Id !== answer.playerId && bout.player2Id !== answer.playerId)) {
+      return { outcome: 'notPlaying' };
+    }
+  }
+
   if (state.phase !== 'answering' || !question) return { outcome: 'windowClosed' };
   if (!question.options.some((option) => option.id === answer.optionId)) return { outcome: 'notAnOption' };
   if (state.sealed.some((submission) => submission.playerId === answer.playerId)) {
@@ -453,3 +857,108 @@ export function planSimulateAnswers(state: GameState, mode: SimulationMode): Ans
 
   return { answers };
 }
+
+export type TrimPlan =
+  | { outcome: 'trimmed'; event: Extract<GameEvent, { type: 'cullTrimmed' }> }
+  | { outcome: 'cullNotOver' }
+  | { outcome: 'trimNotNeeded' }
+  | { outcome: 'invalidCount' }
+  | { outcome: 'invalidSurvivor' };
+
+/** Presenters trim Cull survivors down to 8 to enter the bracket. */
+export function planTrimCull(state: GameState, survivorIds: string[]): TrimPlan {
+  if (cullOver(state) === null) return { outcome: 'cullNotOver' };
+  const current = survivors(state);
+  if (current.length <= 8) return { outcome: 'trimNotNeeded' };
+  if (survivorIds.length !== 8) return { outcome: 'invalidCount' };
+
+  const currentIds = new Set(current.map((p) => p.id));
+  if (!survivorIds.every((id) => currentIds.has(id))) return { outcome: 'invalidSurvivor' };
+
+  return {
+    outcome: 'trimmed',
+    event: { type: 'cullTrimmed', survivorIds },
+  };
+}
+
+export type SeedBracketPlan =
+  | { outcome: 'seeded'; event: Extract<GameEvent, { type: 'bracketSeeded' }> }
+  | { outcome: 'alreadySeeded' }
+  | { outcome: 'cullNotOver' }
+  | { outcome: 'needsTrim'; count: number }
+  | { outcome: 'noSurvivors' };
+
+/** Seeds survivors into the single-elimination bracket using an injected PRNG or seed. */
+export function planSeedBracket(
+  state: GameState,
+  generator?: number | (() => number),
+): SeedBracketPlan {
+  if (state.bracket !== null) return { outcome: 'alreadySeeded' };
+  if (cullOver(state) === null) return { outcome: 'cullNotOver' };
+
+  const current = survivors(state);
+  if (current.length === 0) return { outcome: 'noSurvivors' };
+  if (current.length > 8) return { outcome: 'needsTrim', count: current.length };
+
+  const rng =
+    typeof generator === 'function'
+      ? generator
+      : typeof generator === 'number'
+        ? createRng(generator)
+        : Math.random;
+
+  const survivorIds = current.map((p) => p.id);
+  const entrants = shuffle(survivorIds, rng);
+
+  return {
+    outcome: 'seeded',
+    event: {
+      type: 'bracketSeeded',
+      entrants,
+      ...(typeof generator === 'number' ? { seed: generator } : {}),
+    },
+  };
+}
+
+export type RerunPlan =
+  | { outcome: 'rerun'; event: Extract<GameEvent, { type: 'boutRerun' }> }
+  | { outcome: 'notInBout' }
+  | { outcome: 'boutNotTied' };
+
+/** Re-runs a bout when neither Player submitted. */
+export function planRerunBout(state: GameState): RerunPlan {
+  if (state.bracket === null || state.bracket.currentBoutId === null) return { outcome: 'notInBout' };
+  const bout = state.bracket.bouts.find((b) => b.id === state.bracket!.currentBoutId);
+  if (!bout || bout.winnerId !== null) return { outcome: 'boutNotTied' };
+  if (state.phase !== 'revealed') return { outcome: 'notInBout' };
+
+  return { outcome: 'rerun', event: { type: 'boutRerun' } };
+}
+
+export type ReversePlan =
+  | { outcome: 'reversed'; event: Extract<GameEvent, { type: 'eliminationReversed' }> }
+  | { outcome: 'unknownPlayer' }
+  | { outcome: 'alreadyIn' };
+
+/** Deliberate confirmed action to reverse a mistaken elimination. */
+export function planReverseElimination(state: GameState, playerId: string): ReversePlan {
+  const player = state.roster.find((p) => p.id === playerId);
+  if (!player) return { outcome: 'unknownPlayer' };
+  if (player.standing === 'in') return { outcome: 'alreadyIn' };
+
+  return { outcome: 'reversed', event: { type: 'eliminationReversed', playerId } };
+}
+
+/** Currently active bout, or null if between bouts or bracket not started. */
+export const activeBout = (state: Pick<GameState, 'bracket'>): Bout | null => {
+  if (!state.bracket || !state.bracket.currentBoutId) return null;
+  return state.bracket.bouts.find((b) => b.id === state.bracket!.currentBoutId) ?? null;
+};
+
+/** Whether a given Player is one of the two active Players in the current bout. */
+export const isPlayerInCurrentBout = (state: Pick<GameState, 'bracket'>, playerId: string): boolean => {
+  const current = activeBout(state);
+  if (!current) return false;
+  return current.player1Id === playerId || current.player2Id === playerId;
+};
+

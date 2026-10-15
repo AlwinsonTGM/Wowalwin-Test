@@ -34,6 +34,7 @@ export function useShow() {
     question: null,
     answer: null,
     simulation: { armed: false, mode: 'mixed' },
+    bracket: null,
   });
   /** undefined until the server says; null once it has said there is none. */
   const [joinHost, setJoinHost] = useState<string | null | undefined>(undefined);
@@ -126,6 +127,11 @@ export function useShow() {
     clearSimulated: () => send({ kind: 'clearSimulated' }),
     simulateAnswers: () => send({ kind: 'simulateAnswers' }),
     setSimulation: (armed: boolean, mode: SimulationMode) => send({ kind: 'setSimulation', armed, mode }),
+    /** Bracket actions (ticket 04) */
+    trimCull: (survivorIds: string[]) => send({ kind: 'trimCull', survivorIds }),
+    seedBracket: (seed?: number) => send({ kind: 'seedBracket', seed }),
+    rerunBout: () => send({ kind: 'rerunBout' }),
+    reverseElimination: (playerId: string) => send({ kind: 'reverseElimination', playerId }),
     /** The show's own words for how this phone's last submission went. */
     answerNote: answerAck === null ? null : copy.player.answer[answerAck],
   };

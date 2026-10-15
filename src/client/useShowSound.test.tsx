@@ -42,6 +42,7 @@ const aState = (phase: ShownState['phase']): ShownState => ({
   question: { id: 'q1', prompt: 'Bakit?', options: [{ id: 'a', label: 'Hindi' }], askedAt: 1000 },
   answer: null,
   simulation: { armed: false, mode: 'mixed' },
+  bracket: null,
 });
 
 function Presenter({ state, expose }: { state: ShownState; expose?: (api: ReturnType<typeof useShowSound>) => void }) {

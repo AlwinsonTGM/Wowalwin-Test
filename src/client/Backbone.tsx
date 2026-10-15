@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { copy, showConfig } from '../content/show.ts';
 import { forPresenter } from '../content/questions.ts';
-import { cullLowOnQuestions, cullOver, questionsLeft, survivors, type ShownState } from '../game/machine.ts';
+import { activeBout, cullLowOnQuestions, cullOver, questionsLeft, survivors, type ShownState } from '../game/machine.ts';
 import { useSecondsLeft } from './clock.ts';
 import { useShowSound } from './useShowSound.ts';
 import type { Connection } from './useShow.ts';
@@ -18,6 +19,10 @@ export function Backbone({
   onClearSimulated,
   onSimulateAnswers,
   onSetSimulation,
+  onTrimCull,
+  onSeedBracket,
+  onRerunBout,
+  onReverseElimination,
 }: {
   state: ShownState;
   joinUrl: string | null | undefined;
@@ -29,6 +34,10 @@ export function Backbone({
   onClearSimulated: () => void;
   onSimulateAnswers: () => void;
   onSetSimulation: (armed: boolean, mode: SimulationMode) => void;
+  onTrimCull?: (survivorIds: string[]) => void;
+  onSeedBracket?: (seed?: number) => void;
+  onRerunBout?: () => void;
+  onReverseElimination?: (playerId: string) => void;
 }) {
   const full = state.roster.length >= showConfig.playerCap;
   // `?? null` for the same reason as the Stage: "no question yet" has to be the
@@ -44,6 +53,12 @@ export function Backbone({
   const seeded = state.roster.filter((player) => player.simulated).length;
   const over = cullOver(state);
   const modes: SimulationMode[] = ['correct', 'wrong', 'mixed'];
+
+  const [selectedTrimIds, setSelectedTrimIds] = useState<string[]>([]);
+  const [reversingPlayerId, setReversingPlayerId] = useState<string | null>(null);
+
+  const currentBout = activeBout(state);
+  const isBoutTied = state.bracket !== null && state.phase === 'revealed' && currentBout?.winnerId === null && state.answer !== null;
 
   return (
     <main className="surface surface--backbone">
@@ -75,7 +90,10 @@ export function Backbone({
 
         {/* Between questions, not on top of one: the machine would refuse it, and a
             control that cannot be delivered does not belong on the screen. */}
-        {(state.phase === 'started' || (state.phase === 'revealed' && over === null)) && (
+        {/* Between questions in cull, or in bracket before finalist */}
+        {(state.phase === 'started' ||
+          (state.phase === 'revealed' && state.bracket === null && over === null) ||
+          (state.phase === 'revealed' && state.bracket !== null && state.bracket.finalistId === null && !isBoutTied)) && (
           <button
             type="button"
             className="start"
@@ -84,6 +102,99 @@ export function Backbone({
           >
             {copy.backbone.presentQuestion}
           </button>
+        )}
+
+        {/* Re-run button when neither Player submitted in a bout */}
+        {isBoutTied && onRerunBout && (
+          <button
+            type="button"
+            className="start"
+            onClick={onRerunBout}
+            disabled={connection !== 'online'}
+          >
+            {copy.backbone.rerunBout}
+          </button>
+        )}
+
+        {/* Trim control when Cull ends with more than 8 survivors */}
+        {state.bracket === null && over !== null && alive > 8 && onTrimCull && (
+          <div className="trim-panel">
+            <h3>{copy.backbone.trimHeading}</h3>
+            <p className="note">{copy.backbone.trimInstruction}</p>
+            <p className="label">{copy.backbone.trimCount(selectedTrimIds.length)}</p>
+            <ul className="trim-list">
+              {survivors(state).map((p) => {
+                const checked = selectedTrimIds.includes(p.id);
+                return (
+                  <li key={p.id}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          if (checked) {
+                            setSelectedTrimIds(selectedTrimIds.filter((id) => id !== p.id));
+                          } else if (selectedTrimIds.length < 8) {
+                            setSelectedTrimIds([...selectedTrimIds, p.id]);
+                          }
+                        }}
+                      />
+                      {p.name}
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            <button
+              type="button"
+              className="start"
+              disabled={connection !== 'online' || selectedTrimIds.length !== 8}
+              onClick={() => onTrimCull(selectedTrimIds)}
+            >
+              {copy.backbone.trimConfirm}
+            </button>
+          </div>
+        )}
+
+        {/* Seed Bracket button when survivors <= 8 */}
+        {state.bracket === null && over !== null && alive <= 8 && alive > 0 && onSeedBracket && (
+          <button
+            type="button"
+            className="start"
+            onClick={() => onSeedBracket()}
+            disabled={connection !== 'online'}
+          >
+            {copy.backbone.startBracket}
+          </button>
+        )}
+
+        {/* Bracket details and ambiguous outcomes rules when bracket is active */}
+        {state.bracket !== null && (
+          <div className="bracket-panel">
+            <h3>{copy.backbone.bracketHeading}</h3>
+            {state.bracket.finalistId ? (
+              <p className="finalist-callout">
+                {copy.backbone.finalistHeading}:{' '}
+                <strong>{state.roster.find((p) => p.id === state.bracket!.finalistId)?.name}</strong>
+              </p>
+            ) : currentBout ? (
+              <p className="current-bout">
+                <span className="label">{copy.backbone.currentBoutHeading}: </span>
+                <span>
+                  {copy.backbone.rounds[currentBout.round]} —{' '}
+                  {state.roster.find((p) => p.id === currentBout.player1Id)?.name ?? 'TBD'} vs{' '}
+                  {state.roster.find((p) => p.id === currentBout.player2Id)?.name ?? 'TBD'}
+                </span>
+              </p>
+            ) : null}
+
+            {isBoutTied && <p className="warning">{copy.stage.tieNoSubmissions}</p>}
+
+            <div className="ambiguous-rules">
+              <span className="label">{copy.backbone.ambiguousRulesHeading}: </span>
+              <p className="note">{copy.backbone.ambiguousRules}</p>
+            </div>
+          </div>
         )}
 
         {question === null && state.phase !== 'joining' && <p className="note">{copy.backbone.nothingPresented}</p>}
@@ -240,6 +351,37 @@ export function Backbone({
                   {player.name}
                   {player.simulated && <span className="badge">{copy.backbone.simulatedBadge}</span>}
                 </span>
+                {player.standing === 'out' && onReverseElimination && (
+                  reversingPlayerId === player.id ? (
+                    <span className="reversal-confirm">
+                      <button
+                        type="button"
+                        className="ghost ghost--confirm"
+                        onClick={() => {
+                          onReverseElimination(player.id);
+                          setReversingPlayerId(null);
+                        }}
+                      >
+                        {copy.backbone.confirmReverse}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => setReversingPlayerId(null)}
+                      >
+                        {copy.backbone.cancelReverse}
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="ghost ghost--small"
+                      onClick={() => setReversingPlayerId(player.id)}
+                    >
+                      {copy.backbone.reverseElimination}
+                    </button>
+                  )
+                )}
                 <span
                   role="img"
                   className="roster__dot"

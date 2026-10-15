@@ -390,6 +390,7 @@ describe('one question, answered and revealed', () => {
       expect(Object.keys(seenByBackbone.state).sort()).toEqual([
         'answer',
         'asked',
+        'bracket',
         'phase',
         'question',
         'roster',

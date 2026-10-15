@@ -194,6 +194,7 @@ describe('the answer window over the socket', () => {
           question: { id: 'q1', prompt: 'Bakit?', options: [{ id: 'a', label: 'Hindi' }], askedAt: 0 },
           answer: null,
           simulation: { armed: false, mode: 'mixed' },
+          bracket: null,
         },
       }),
     );

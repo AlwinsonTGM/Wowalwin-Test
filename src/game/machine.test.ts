@@ -1,17 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activeBout,
   cullLowOnQuestions,
   cullOver,
+  createRng,
   fold,
+  isPlayerInCurrentBout,
   planClearSimulated,
   planCloseAnswerWindow,
   planJoin,
   planNextQuestion,
   planReveal,
   planResume,
+  planRerunBout,
+  planReverseElimination,
+  planSeedBracket,
   planSimulateAnswers,
   planSimulatePlayers,
   planSubmitAnswer,
+  planTrimCull,
   questionsLeft,
   secondsLeft,
   shown,
@@ -19,7 +26,7 @@ import {
 } from './machine.ts';
 import type { GameEvent, SimulationMode } from './events.ts';
 import { showConfig, simulatedName } from '../content/show.ts';
-import { cullQuestions, forPresenter } from '../content/questions.ts';
+import { boutQuestions, cullQuestions, forPresenter } from '../content/questions.ts';
 
 const aPlayer = (id: string, name: string): GameEvent => ({ type: 'playerJoined', playerId: id, name });
 const showStarted: GameEvent = { type: 'showStarted' };
@@ -55,6 +62,7 @@ describe('the roster', () => {
       answer: null,
       sealed: [],
       simulation: { armed: false, mode: 'mixed' },
+      bracket: null,
     });
   });
 
@@ -182,6 +190,7 @@ describe('the event log', () => {
       answer: null,
       sealed: [],
       simulation: { armed: false, mode: 'mixed' },
+      bracket: null,
     });
   });
 
@@ -290,6 +299,7 @@ describe('an answer arriving', () => {
     expect(Object.keys(shown(state)).sort()).toEqual([
       'answer',
       'asked',
+      'bracket',
       'phase',
       'question',
       'roster',
@@ -507,7 +517,9 @@ describe('the cull', () => {
     const after = fold([...aRoom(12), { type: 'questionPresented', questionId: questionOne.id, at: 0 }, ...closed]);
 
     expect(before.roster.every((player) => player.standing === 'in')).toBe(true);
-    expect(after.roster.filter((player) => player.standing === 'out')).toHaveLength(12);
+    // Cull floor guarantee: nobody submitted, so the first joined player keeps their place
+    expect(after.roster.filter((player) => player.standing === 'out')).toHaveLength(11);
+    expect(survivors(after)).toHaveLength(1);
   });
 
   it('puts everyone in the show, from the moment they join', () => {
@@ -656,8 +668,9 @@ describe('the cull, whatever the room does', () => {
 
     // Every combination really was tried, and the eliminated Player was refused
     // every single time — which is why the biggest round is eleven, not twelve.
+    // The cull floor guarantee ensures at least one survivor remains.
     expect(counts).toHaveLength(2 ** SIZE);
-    expect(Math.min(...counts)).toBe(0);
+    expect(Math.min(...counts)).toBe(1);
     expect(Math.max(...counts)).toBe(SIZE - 1);
   });
 
@@ -794,5 +807,462 @@ describe('a seeded room answering', () => {
 
     expect(answers.map((answer) => answer.playerId)).not.toContain(out);
     expect(answers).toHaveLength(3);
+  });
+});
+
+describe('the bracket', () => {
+  // Helper to construct a room of N players that has finished the Cull
+  const finishCullWith = (count: number) => {
+    const players = Array.from({ length: count }, (_, i) => aPlayer(`p${i + 1}`, `Player ${i + 1}`));
+    const log: GameEvent[] = [
+      ...players,
+      showStarted,
+      firstQuestion(),
+      ...players.map((p) => submits((p as any).playerId, questionOne.correctOptionId)),
+      ...closed,
+    ];
+    return fold(log);
+  };
+
+  describe('cull floor guarantee (ticket 03 amendment)', () => {
+    it('spares the last submitter when everyone answered incorrectly on Cull reveal', () => {
+      const players = [aPlayer('p1', 'Ana'), aPlayer('p2', 'Ben'), aPlayer('p3', 'Cara')];
+      const wrongOption = questionOne.options.find((o) => o.id !== questionOne.correctOptionId)!.id;
+      const state = fold([
+        ...players,
+        showStarted,
+        firstQuestion(),
+        submits('p1', wrongOption),
+        submits('p2', wrongOption),
+        submits('p3', wrongOption),
+        ...closed,
+      ]);
+
+      // All answered wrong, but p3 was the last submitter
+      expect(survivors(state)).toHaveLength(1);
+      expect(survivors(state)[0]!.id).toBe('p3');
+    });
+
+    it('spares the first joined player still in when nobody submitted at all on Cull reveal', () => {
+      const players = [aPlayer('p1', 'Ana'), aPlayer('p2', 'Ben'), aPlayer('p3', 'Cara')];
+      const state = fold([
+        ...players,
+        showStarted,
+        firstQuestion(),
+        // Zero submissions
+        ...closed,
+      ]);
+
+      // Nobody submitted, so p1 (first joined still in) survives
+      expect(survivors(state)).toHaveLength(1);
+      expect(survivors(state)[0]!.id).toBe('p1');
+    });
+  });
+
+  describe('trimming the cull to eight', () => {
+    it('trims > 8 survivors down to the chosen 8', () => {
+      const state = finishCullWith(10);
+      expect(survivors(state)).toHaveLength(10);
+
+      const chosen8 = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'];
+      const plan = planTrimCull(state, chosen8);
+      expect(plan.outcome).toBe('trimmed');
+      if (plan.outcome !== 'trimmed') return;
+
+      const trimmed = fold([
+        ...Array.from({ length: 10 }, (_, i) => aPlayer(`p${i + 1}`, `Player ${i + 1}`)),
+        showStarted,
+        firstQuestion(),
+        ...Array.from({ length: 10 }, (_, i) => submits(`p${i + 1}`, questionOne.correctOptionId)),
+        ...closed,
+        plan.event,
+      ]);
+
+      expect(survivors(trimmed)).toHaveLength(8);
+      expect(survivors(trimmed).map((p) => p.id)).toEqual(chosen8);
+      expect(trimmed.roster.find((p) => p.id === 'p9')?.standing).toBe('out');
+      expect(trimmed.roster.find((p) => p.id === 'p10')?.standing).toBe('out');
+    });
+
+    it('refuses to trim if there are 8 or fewer survivors', () => {
+      const state = finishCullWith(8);
+      const plan = planTrimCull(state, ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8']);
+      expect(plan.outcome).toBe('trimNotNeeded');
+    });
+
+    it('refuses to trim if count is not exactly 8', () => {
+      const state = finishCullWith(10);
+      expect(planTrimCull(state, ['p1', 'p2', 'p3']).outcome).toBe('invalidCount');
+      expect(planTrimCull(state, ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9']).outcome).toBe('invalidCount');
+    });
+
+    it('refuses if any chosen ID is not an active survivor', () => {
+      const state = finishCullWith(10);
+      expect(planTrimCull(state, ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'unknown']).outcome).toBe('invalidSurvivor');
+    });
+  });
+
+  describe('bracket seeding and PRNG', () => {
+    it('refuses to seed before Cull is over', () => {
+      const running = fold([aPlayer('p1', 'Ana'), aPlayer('p2', 'Ben'), showStarted]);
+      expect(planSeedBracket(running).outcome).toBe('cullNotOver');
+    });
+
+    it('refuses to seed if more than 8 survivors remain (needs trim)', () => {
+      const state = finishCullWith(10);
+      expect(planSeedBracket(state)).toEqual({ outcome: 'needsTrim', count: 10 });
+    });
+
+    it('reproduces identical pairings with a pinned seed', () => {
+      const state = finishCullWith(8);
+      const plan1 = planSeedBracket(state, 12345);
+      const plan2 = planSeedBracket(state, 12345);
+
+      expect(plan1.outcome).toBe('seeded');
+      expect(plan2.outcome).toBe('seeded');
+      if (plan1.outcome === 'seeded' && plan2.outcome === 'seeded') {
+        expect(plan1.event.entrants).toEqual(plan2.event.entrants);
+        expect(plan1.event.seed).toBe(12345);
+      }
+    });
+
+    it('seeds entrants into quarterfinal bouts and sets active bout', () => {
+      const state = finishCullWith(8);
+      const plan = planSeedBracket(state, 42);
+      expect(plan.outcome).toBe('seeded');
+      if (plan.outcome !== 'seeded') return;
+
+      const seeded = fold([
+        ...Array.from({ length: 8 }, (_, i) => aPlayer(`p${i + 1}`, `Player ${i + 1}`)),
+        showStarted,
+        firstQuestion(),
+        ...Array.from({ length: 8 }, (_, i) => submits(`p${i + 1}`, questionOne.correctOptionId)),
+        ...closed,
+        plan.event,
+      ]);
+
+      expect(seeded.bracket).not.toBeNull();
+      expect(seeded.bracket!.bouts).toHaveLength(7);
+      expect(seeded.bracket!.currentBoutId).toBe('bout-1');
+      expect(activeBout(seeded)?.id).toBe('bout-1');
+    });
+
+    it('symmetrically places byes when fewer than 8 players advance', () => {
+      // 5 survivors -> 3 byes in QF
+      const state = finishCullWith(5);
+      const plan = planSeedBracket(state, 99);
+      expect(plan.outcome).toBe('seeded');
+      if (plan.outcome !== 'seeded') return;
+
+      const seeded = fold([
+        ...Array.from({ length: 5 }, (_, i) => aPlayer(`p${i + 1}`, `Player ${i + 1}`)),
+        showStarted,
+        firstQuestion(),
+        ...Array.from({ length: 5 }, (_, i) => submits(`p${i + 1}`, questionOne.correctOptionId)),
+        ...closed,
+        plan.event,
+      ]);
+
+      expect(seeded.bracket).not.toBeNull();
+      // Byes automatically advance to semifinals
+      const qfBouts = seeded.bracket!.bouts.filter((b) => b.round === 'quarter');
+      const byeBouts = qfBouts.filter((b) => b.resolvedBy === 'bye');
+      expect(byeBouts.length).toBe(3);
+    });
+  });
+
+  describe('bout submission constraints', () => {
+    it('restricts submissions to only the 2 active bout players', () => {
+      const state = finishCullWith(8);
+      const plan = planSeedBracket(state, 42);
+      if (plan.outcome !== 'seeded') throw new Error('seeding failed');
+
+      const seeded = fold([
+        ...Array.from({ length: 8 }, (_, i) => aPlayer(`p${i + 1}`, `Player ${i + 1}`)),
+        showStarted,
+        firstQuestion(),
+        ...Array.from({ length: 8 }, (_, i) => submits(`p${i + 1}`, questionOne.correctOptionId)),
+        ...closed,
+        plan.event,
+      ]);
+
+      const bout = activeBout(seeded)!;
+      const b1 = boutQuestions[0]!;
+      const askingBout = fold([
+        ...Array.from({ length: 8 }, (_, i) => aPlayer(`p${i + 1}`, `Player ${i + 1}`)),
+        showStarted,
+        firstQuestion(),
+        ...Array.from({ length: 8 }, (_, i) => submits(`p${i + 1}`, questionOne.correctOptionId)),
+        ...closed,
+        plan.event,
+        { type: 'questionPresented', questionId: b1.id, at: 1000 },
+      ]);
+
+      // Fighter 1 can submit
+      expect(planSubmitAnswer(askingBout, { playerId: bout.player1Id!, optionId: 'a' }).outcome).toBe('recorded');
+      // Fighter 2 can submit
+      expect(planSubmitAnswer(askingBout, { playerId: bout.player2Id!, optionId: 'a' }).outcome).toBe('recorded');
+
+      // Player waiting in bracket cannot submit
+      const waitingPlayerId = seeded.roster.find((p) => p.id !== bout.player1Id && p.id !== bout.player2Id)!.id;
+      expect(planSubmitAnswer(askingBout, { playerId: waitingPlayerId, optionId: 'a' }).outcome).toBe('notPlaying');
+    });
+  });
+
+  describe('bout resolution rules', () => {
+    const setupBout = () => {
+      const state = finishCullWith(8);
+      const seedPlan = planSeedBracket(state, 42);
+      if (seedPlan.outcome !== 'seeded') throw new Error('seeding failed');
+
+      const baseLog: GameEvent[] = [
+        ...Array.from({ length: 8 }, (_, i) => aPlayer(`p${i + 1}`, `Player ${i + 1}`)),
+        showStarted,
+        firstQuestion(),
+        ...Array.from({ length: 8 }, (_, i) => submits(`p${i + 1}`, questionOne.correctOptionId)),
+        ...closed,
+        seedPlan.event,
+      ];
+
+      const seeded = fold(baseLog);
+      const bout = activeBout(seeded)!;
+      const bQuestion = boutQuestions[0]!;
+      const correctOpt = bQuestion.correctOptionId;
+      const wrongOpt = bQuestion.options.find((o) => o.id !== correctOpt)!.id;
+
+      return { baseLog, bout, bQuestion, correctOpt, wrongOpt };
+    };
+
+    it('earliest correct wins even if opponent submitted earlier and wrong', () => {
+      const { baseLog, bout, bQuestion, correctOpt, wrongOpt } = setupBout();
+      const p1 = bout.player1Id!;
+      const p2 = bout.player2Id!;
+
+      // p1 submits wrong at t=100, p2 submits correct at t=200
+      const resolved = fold([
+        ...baseLog,
+        { type: 'questionPresented', questionId: bQuestion.id, at: 1000 },
+        submits(p1, wrongOpt),
+        submits(p2, correctOpt),
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+      ]);
+
+      const boutAfter = resolved.bracket!.bouts.find((b) => b.id === bout.id)!;
+      expect(boutAfter.winnerId).toBe(p2);
+      expect(resolved.roster.find((p) => p.id === p2)?.standing).toBe('in');
+      expect(resolved.roster.find((p) => p.id === p1)?.standing).toBe('out');
+    });
+
+    it('earliest correct wins when both answer correctly', () => {
+      const { baseLog, bout, bQuestion, correctOpt } = setupBout();
+      const p1 = bout.player1Id!;
+      const p2 = bout.player2Id!;
+
+      // p1 submits correct first, p2 submits correct second
+      const resolved = fold([
+        ...baseLog,
+        { type: 'questionPresented', questionId: bQuestion.id, at: 1000 },
+        submits(p1, correctOpt),
+        submits(p2, correctOpt),
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+      ]);
+
+      const boutAfter = resolved.bracket!.bouts.find((b) => b.id === bout.id)!;
+      expect(boutAfter.winnerId).toBe(p1);
+      expect(resolved.roster.find((p) => p.id === p1)?.standing).toBe('in');
+      expect(resolved.roster.find((p) => p.id === p2)?.standing).toBe('out');
+    });
+
+    it('correct wins when opponent never submitted', () => {
+      const { baseLog, bout, bQuestion, correctOpt } = setupBout();
+      const p1 = bout.player1Id!;
+      const p2 = bout.player2Id!;
+
+      // p2 submits correct, p1 is silent
+      const resolved = fold([
+        ...baseLog,
+        { type: 'questionPresented', questionId: bQuestion.id, at: 1000 },
+        submits(p2, correctOpt),
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+      ]);
+
+      const boutAfter = resolved.bracket!.bouts.find((b) => b.id === bout.id)!;
+      expect(boutAfter.winnerId).toBe(p2);
+      expect(resolved.roster.find((p) => p.id === p1)?.standing).toBe('out');
+    });
+
+    it('eliminates earliest submitter when all submitted answers are wrong', () => {
+      const { baseLog, bout, bQuestion, wrongOpt } = setupBout();
+      const p1 = bout.player1Id!;
+      const p2 = bout.player2Id!;
+
+      // p1 submits wrong first, p2 submits wrong second
+      // Rule: earliest submitter is eliminated, other advances
+      const resolved = fold([
+        ...baseLog,
+        { type: 'questionPresented', questionId: bQuestion.id, at: 1000 },
+        submits(p1, wrongOpt),
+        submits(p2, wrongOpt),
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+      ]);
+
+      const boutAfter = resolved.bracket!.bouts.find((b) => b.id === bout.id)!;
+      expect(boutAfter.winnerId).toBe(p2);
+      expect(resolved.roster.find((p) => p.id === p1)?.standing).toBe('out');
+      expect(resolved.roster.find((p) => p.id === p2)?.standing).toBe('in');
+    });
+
+    it('eliminates wrong submitter when only one submitted and was wrong', () => {
+      const { baseLog, bout, bQuestion, wrongOpt } = setupBout();
+      const p1 = bout.player1Id!;
+      const p2 = bout.player2Id!;
+
+      // p1 submits wrong, p2 never submitted
+      // Rule: earliest submitter eliminated, other advances
+      const resolved = fold([
+        ...baseLog,
+        { type: 'questionPresented', questionId: bQuestion.id, at: 1000 },
+        submits(p1, wrongOpt),
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+      ]);
+
+      const boutAfter = resolved.bracket!.bouts.find((b) => b.id === bout.id)!;
+      expect(boutAfter.winnerId).toBe(p2);
+      expect(resolved.roster.find((p) => p.id === p1)?.standing).toBe('out');
+      expect(resolved.roster.find((p) => p.id === p2)?.standing).toBe('in');
+    });
+
+    it('nobody is eliminated when neither player submitted; operator re-runs bout', () => {
+      const { baseLog, bout, bQuestion } = setupBout();
+      const p1 = bout.player1Id!;
+      const p2 = bout.player2Id!;
+
+      // Neither submits
+      const resolved = fold([
+        ...baseLog,
+        { type: 'questionPresented', questionId: bQuestion.id, at: 1000 },
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+      ]);
+
+      const boutAfter = resolved.bracket!.bouts.find((b) => b.id === bout.id)!;
+      expect(boutAfter.winnerId).toBeNull();
+      expect(resolved.roster.find((p) => p.id === p1)?.standing).toBe('in');
+      expect(resolved.roster.find((p) => p.id === p2)?.standing).toBe('in');
+
+      // Operator re-runs bout
+      const rerunPlan = planRerunBout(resolved);
+      expect(rerunPlan.outcome).toBe('rerun');
+      if (rerunPlan.outcome !== 'rerun') return;
+
+      const rerunning = fold([
+        ...baseLog,
+        { type: 'questionPresented', questionId: bQuestion.id, at: 1000 },
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+        rerunPlan.event,
+      ]);
+
+      expect(rerunning.phase).toBe('started');
+      expect(rerunning.question).toBeNull();
+      expect(activeBout(rerunning)?.id).toBe(bout.id);
+    });
+  });
+
+  describe('bracket progression and convergence to single Finalist', () => {
+    it('advances through 7 bouts step by step to crown 1 Finalist', () => {
+      const state = finishCullWith(8);
+      const seedPlan = planSeedBracket(state, 42);
+      if (seedPlan.outcome !== 'seeded') throw new Error('seeding failed');
+
+      const log: GameEvent[] = [
+        ...Array.from({ length: 8 }, (_, i) => aPlayer(`p${i + 1}`, `Player ${i + 1}`)),
+        showStarted,
+        firstQuestion(),
+        ...Array.from({ length: 8 }, (_, i) => submits(`p${i + 1}`, questionOne.correctOptionId)),
+        ...closed,
+        seedPlan.event,
+      ];
+
+      for (let i = 0; i < 7; i++) {
+        const curState = fold(log);
+        const presPlan = planNextQuestion(curState, Date.now());
+        expect(presPlan.outcome).toBe('presented');
+        if (presPlan.outcome !== 'presented') break;
+        log.push(presPlan.event);
+
+        const afterAsk = fold(log);
+        const bout = activeBout(afterAsk)!;
+        const q = boutQuestions.find((candidate) => candidate.id === presPlan.event.questionId)!;
+
+        // Fighter 1 submits correct answer
+        log.push(submits(bout.player1Id!, q.correctOptionId));
+        log.push({ type: 'answerWindowClosed' });
+        log.push({ type: 'revealTriggered' });
+      }
+
+      const finalState = fold(log);
+      expect(finalState.bracket?.finalistId).not.toBeNull();
+      expect(survivors(finalState)).toHaveLength(1);
+      expect(survivors(finalState)[0]!.id).toBe(finalState.bracket?.finalistId);
+      expect(finalState.roster.filter((p) => p.standing === 'out')).toHaveLength(7);
+      expect(planNextQuestion(finalState, Date.now()).outcome).toBe('cullComplete');
+    });
+  });
+
+  describe('deliberate confirmed elimination reversal', () => {
+    it('reverses mistaken elimination, restores player, and rolls back bracket propagation', () => {
+      const state = finishCullWith(8);
+      const seedPlan = planSeedBracket(state, 42);
+      if (seedPlan.outcome !== 'seeded') throw new Error('seeding failed');
+
+      const log: GameEvent[] = [
+        ...Array.from({ length: 8 }, (_, i) => aPlayer(`p${i + 1}`, `Player ${i + 1}`)),
+        showStarted,
+        firstQuestion(),
+        ...Array.from({ length: 8 }, (_, i) => submits(`p${i + 1}`, questionOne.correctOptionId)),
+        ...closed,
+        seedPlan.event,
+      ];
+
+      const curState = fold(log);
+      const presPlan = planNextQuestion(curState, Date.now()) as Extract<ReturnType<typeof planNextQuestion>, { outcome: 'presented' }>;
+      log.push(presPlan.event);
+
+      const asked = fold(log);
+      const bout = activeBout(asked)!;
+      const p1 = bout.player1Id!;
+      const p2 = bout.player2Id!;
+      const q = boutQuestions.find((candidate) => candidate.id === presPlan.event.questionId)!;
+
+      // p1 submits correct and mistakenly wins, p2 eliminated
+      log.push(submits(p1, q.correctOptionId));
+      log.push({ type: 'answerWindowClosed' });
+      log.push({ type: 'revealTriggered' });
+
+      const resolved = fold(log);
+      expect(resolved.roster.find((p) => p.id === p2)?.standing).toBe('out');
+
+      // Operator reverses elimination of p2
+      const revPlan = planReverseElimination(resolved, p2);
+      expect(revPlan.outcome).toBe('reversed');
+      if (revPlan.outcome !== 'reversed') return;
+
+      log.push(revPlan.event);
+      const reversed = fold(log);
+
+      // p2 is restored to 'in'
+      expect(reversed.roster.find((p) => p.id === p2)?.standing).toBe('in');
+      // Bout 1 is reset
+      const resetBout = reversed.bracket!.bouts.find((b) => b.id === bout.id)!;
+      expect(resetBout.winnerId).toBeNull();
+      // Active bout points back to Bout 1
+      expect(activeBout(reversed)?.id).toBe(bout.id);
+    });
   });
 });
