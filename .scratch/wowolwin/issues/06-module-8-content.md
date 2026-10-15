@@ -6,7 +6,7 @@ This ticket is authored in full from the Module 8 source, including a placeholde
 
 **Blocked by:** 01 — Join the show. Can run in parallel with 02 through 05; it gates nothing.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The question bank covers all three Module 8 blocks — the importance of planning, the TRIM tools, and failure in entrepreneurship
 - [x] Separate pools exist for Cull questions and for bout questions, since the two need different difficulty profiles
