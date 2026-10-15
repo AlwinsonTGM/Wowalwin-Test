@@ -18,3 +18,19 @@ export const DEV_CLIENT_PORT = 5173;
 export const CLIENT_DIR = resolve(ROOT, 'dist');
 
 export const DEFAULT_LOG_PATH = resolve(ROOT, 'data/event-log.json');
+
+/**
+ * A rehearsal writes here instead, never there (ticket 03). Separate files are
+ * the whole point: `npm run resume` on the day cannot read a seeded roster,
+ * because it is not in the file it opens. Nothing has to be remembered for that
+ * to hold — the filesystem prevents it.
+ */
+export const REHEARSAL_LOG_PATH = resolve(ROOT, 'data/rehearsal-log.json');
+
+/**
+ * Which log a run is about, decided before anything touches the disk. The wipe
+ * and the run have to be asking this question once: if they could answer it
+ * differently, `npm run rehearse --fresh` would wipe the real show's roster.
+ */
+export const logPathFor = (argv: readonly string[]): string =>
+  argv.includes('--rehearse') ? REHEARSAL_LOG_PATH : DEFAULT_LOG_PATH;

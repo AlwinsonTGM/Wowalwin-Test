@@ -142,6 +142,42 @@ players, the strike-through reading from the back of a room, and whether a phone
 keeps its socket through a reveal are all unverified on real hardware. Ticket 01's
 open rehearsal box is unchanged and still the honest limit on the whole show.
 
+### A rehearsal runs against its own log
+
+The ruling landed after this ticket's first commit, so it is built here rather
+than argued about. Three commands, one file each, and the filesystem decides
+which — not the order someone typed the words in:
+
+| Command | Log | Wiped? |
+| --- | --- | --- |
+| `npm start` | `data/event-log.json` | yes |
+| `npm run rehearse` | `data/rehearsal-log.json` | yes |
+| `npm run resume` | `data/event-log.json` | no |
+
+`index.ts` resolves the path **before** it wipes anything, so `rehearse --fresh`
+cannot delete the real show's roster on its way past — the two can never be
+asking about different files. Verified for real, not by inspection: a sentinel
+written into `data/event-log.json` survived a `--rehearse --fresh` run byte for
+byte, and a plain `--fresh` run removed it as promised.
+
+**One deviation from the ruling, flagged rather than quietly taken.** It said
+`GameEvent` gains no `simulated` flag, reasoning that "if the logs never mix, a
+seeded and a real `playerJoined` never coexist in one fold". That reasoning is
+about telling a rehearsal from a show, which the separate files now do — but the
+flag in this ticket carries behaviour, not a badge:
+
+- `simulatedPlayersCleared` uses it to take out the seeded room and leave real
+  phones alone. Without it, "torn down cleanly" takes the presenter's own phones
+  off the roster with it, and box 2 is not met.
+- `planSimulateAnswers` uses it to answer only seeded Players. A rehearsal that
+  also has real phones on it would otherwise have a phone silently answering
+  itself, which is a different show from the one the Presenter asked to rehearse.
+
+So the flag stays and the ruling's actual goal — a rehearsal can never be
+mistaken for the real room — is met by the log paths instead, which is what the
+ruling was for. If the room disagrees, dropping the flag is a small change and
+the honest cost is losing per-player teardown.
+
 ### Ruling: a rehearsal writes to a different file, not a flagged one
 
 Found by @Checker before this was built, having tested it rather than reasoned about

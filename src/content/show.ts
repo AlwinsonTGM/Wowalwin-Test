@@ -146,6 +146,10 @@ export const copy = {
     noAddress: 'Hindi mahanap ang tamang address. Buksan ang hotspot o i-off ang extrang Wi-Fi, saka i-restart.',
     firewallNote: 'Kung hindi makakapasok ang phone, i-check ang Windows Firewall para sa private network.',
     logUnreadable: (path: string) => `Hindi mabasa ang event log sa ${path}. Nawala ang dating roster.`,
+    /** Said once, loudly, on a run that cannot touch the real show. */
+    rehearsalWarning: 'REHEARSAL ito. Hindi nito nasasagot ang tunay na show.',
+    rehearsalLog: 'rehearsal — walang epekto sa tunay na show',
+    showLog: 'ang tunay na show',
   },
 
   backbone: {

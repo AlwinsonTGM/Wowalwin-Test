@@ -6,9 +6,15 @@ A live game show for Module 8, played in a classroom: one laptop, a projector, a
 
 | Command | What it does | What it prints |
 | --- | --- | --- |
-| `npm start` | Builds the client, clears the event log, serves everything from one server. **This is the show-day command.** | `http://192.168.137.1:8787/play` — the join link for the phones |
+| `npm start` | Builds the client, clears the **show's** log, serves everything from one server. **This is the show-day command.** | `http://192.168.137.1:8787/play` — the join link for the phones |
+| `npm run rehearse` | The same, against `data/rehearsal-log.json` instead — a room you can seed and tear down without touching the real show. | A rehearsal warning, and the same join link |
 | `npm run dev` | Server plus Vite, for working on it. | The same link on Vite's port `5173`, since Vite serves the client there |
-| `npm run resume` | Restarts the server keeping the event log, after a crash or a restart. | The same link on `8787` |
+| `npm run resume` | Restarts the server keeping the **show's** log, after a crash or a restart. | The same link on `8787` |
+
+The two logs are separate files on purpose. A rehearsal cannot poison the show,
+and `npm run resume` on the day cannot read a seeded roster, because it never
+opens the file a seeded roster is written to — the filesystem prevents that
+mistake rather than anyone having to remember a command.
 
 Phones must be on the laptop's Windows hotspot first, and nothing works until one has joined it. Test on a real phone before the day.
 
