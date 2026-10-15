@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Join the show.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] A question and its options appear on the Player phone and on the Stage at the same time
 - [x] A Player can submit exactly one answer per question and receives a visible acknowledgement that it registered
