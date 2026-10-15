@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import { copy } from '../content/show.ts';
 import { Pera, Bokya, findPrize, peso, hasPlaceholderPrizes } from '../content/prizes.ts';
 import { activeBout, type ShownState } from '../game/machine.ts';
@@ -122,6 +124,29 @@ function StageDeckView({ slide, slideIndex }: { slide: DeckSlide; slideIndex: nu
   );
 }
 
+function StageQrCode({ url }: { url: string }) {
+  const [svg, setSvg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    QRCode.toString(url, { type: 'svg', margin: 1, width: 220 }, (err, str) => {
+      if (active && !err && str) setSvg(str);
+    });
+    return () => {
+      active = false;
+    };
+  }, [url]);
+
+  if (!svg) return null;
+  return (
+    <div
+      className="join-qr"
+      aria-label={copy.stage.joinQrLabel}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
+
 /** The projector: everything the room sees, and nothing else. */
 export function Stage({ state, joinUrl }: { state: ShownState; joinUrl: string | null | undefined }) {
   if (state.deck?.active) {
@@ -215,11 +240,14 @@ export function Stage({ state, joinUrl }: { state: ShownState; joinUrl: string |
         <section className="join">
           <h2>{copy.stage.joinHeading}</h2>
           {joinUrl ? (
-            <>
-              <p className="join-url">{joinUrl}</p>
-              <p className="instruction">{copy.stage.joinInstruction}</p>
-              <p className="instruction">{copy.common.firewallNote}</p>
-            </>
+            <div className="join-container">
+              <StageQrCode url={joinUrl} />
+              <div className="join-details">
+                <p className="join-url">{joinUrl}</p>
+                <p className="instruction">{copy.stage.joinInstruction}</p>
+                <p className="instruction">{copy.common.firewallNote}</p>
+              </div>
+            </div>
           ) : (
             <p className="warning">{copy.common.noAddress}</p>
           )}

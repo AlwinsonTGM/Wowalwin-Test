@@ -44,4 +44,6 @@ export type GameEvent =
   /** Ticket 07: The Deck (HTML slides safety net & module presentation) */
   | { type: 'deckOpened'; slideIndex?: number }
   | { type: 'deckClosed' }
-  | { type: 'deckSlideSet'; slideIndex: number };
+  | { type: 'deckSlideSet'; slideIndex: number }
+  /** Ticket 08: Fallback and rehearsal (direct bout resolution) */
+  | { type: 'boutResolvedDirectly'; boutId: string; winnerId: string };

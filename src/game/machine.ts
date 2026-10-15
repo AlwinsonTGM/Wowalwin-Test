@@ -51,7 +51,7 @@ export type Bout = {
   player1Id: string | null;
   player2Id: string | null;
   winnerId: string | null;
-  resolvedBy?: 'bout' | 'bye';
+  resolvedBy?: 'bout' | 'bye' | 'manual';
 };
 
 export type BracketState = {
@@ -665,6 +665,48 @@ export function fold(events: GameEvent[]): GameState {
             },
           };
         }
+        case 'boutResolvedDirectly': {
+          if (state.bracket === null) return state;
+          const bout = state.bracket.bouts.find((b) => b.id === event.boutId);
+          if (!bout || bout.winnerId !== null) return state;
+          if (bout.player1Id !== event.winnerId && bout.player2Id !== event.winnerId) return state;
+
+          const eliminatedId = bout.player1Id === event.winnerId ? bout.player2Id : bout.player1Id;
+          const updatedBouts = state.bracket.bouts.map((b) =>
+            b.id === bout.id ? { ...b, winnerId: event.winnerId, resolvedBy: 'manual' as const } : b,
+          );
+          const { bouts: propagatedBouts, finalistId } = propagateBracket(updatedBouts);
+
+          let answer = state.answer;
+          if (answer === null && state.question) {
+            const bank = findQuestion(state.question.id);
+            const option = bank?.options.find((candidate) => candidate.id === bank.correctOptionId);
+            if (bank && option) {
+              answer = {
+                questionId: state.question.id,
+                optionId: option.id,
+                optionLabel: option.label,
+                submissions: state.sealed,
+              };
+            }
+          }
+
+          return {
+            ...state,
+            phase: state.question ? 'revealed' : state.phase,
+            sealed: [],
+            answer,
+            roster: state.roster.map((player) =>
+              player.id === eliminatedId ? { ...player, standing: 'out' } : player,
+            ),
+            bracket: {
+              ...state.bracket,
+              bouts: propagatedBouts,
+              currentBoutId: bout.id,
+              finalistId,
+            },
+          };
+        }
       }
     },
     {
@@ -1048,6 +1090,32 @@ export function planReverseElimination(state: GameState, playerId: string): Reve
   if (player.standing === 'in') return { outcome: 'alreadyIn' };
 
   return { outcome: 'reversed', event: { type: 'eliminationReversed', playerId } };
+}
+
+export type ResolveBoutDirectlyPlan =
+  | { outcome: 'resolved'; event: Extract<GameEvent, { type: 'boutResolvedDirectly' }> }
+  | { outcome: 'notInBracket' }
+  | { outcome: 'boutNotFound' }
+  | { outcome: 'invalidWinner' }
+  | { outcome: 'alreadyResolved' };
+
+/** Presenter manually resolves a bout directly (e.g. phone failure, direct decision). */
+export function planResolveBoutDirectly(
+  state: GameState,
+  boutId: string,
+  winnerId: string,
+): ResolveBoutDirectlyPlan {
+  if (state.bracket === null) return { outcome: 'notInBracket' };
+  const bout = state.bracket.bouts.find((b) => b.id === boutId);
+  if (!bout) return { outcome: 'boutNotFound' };
+  if (bout.winnerId !== null) return { outcome: 'alreadyResolved' };
+  if (!bout.player1Id || !bout.player2Id) return { outcome: 'invalidWinner' };
+  if (bout.player1Id !== winnerId && bout.player2Id !== winnerId) return { outcome: 'invalidWinner' };
+
+  return {
+    outcome: 'resolved',
+    event: { type: 'boutResolvedDirectly', boutId, winnerId },
+  };
 }
 
 /** Currently active bout, or null if between bouts or bracket not started. */

@@ -13,6 +13,7 @@ import {
   planReveal,
   planResume,
   planRerunBout,
+  planResolveBoutDirectly,
   planReverseElimination,
   planSeedBracket,
   planSimulateAnswers,
@@ -34,7 +35,7 @@ import type { GameEvent, SimulationMode } from '../game/events.ts';
 import type { ClientMessage, ServerMessage } from '../shared/protocol.ts';
 import { readEventLog, writeEventLog } from './event-log.ts';
 import { reachableHost } from './address.ts';
-import { CLIENT_DIR, DEFAULT_LOG_PATH } from './config.ts';
+import { CLIENT_DIR, DEFAULT_LOG_PATH, REHEARSAL_LOG_PATH } from './config.ts';
 import { showConfig } from '../content/show.ts';
 
 export type ShowServer = {
@@ -62,7 +63,18 @@ const parse = (raw: RawData): ClientMessage | null => {
       return { kind: 'setSimulation', armed: message.armed === true, mode };
     }
     if (message?.kind === 'submitAnswer') {
-      return { kind: 'submitAnswer', optionId: typeof message.optionId === 'string' ? message.optionId : '' };
+      return {
+        kind: 'submitAnswer',
+        optionId: typeof message.optionId === 'string' ? message.optionId : '',
+        playerId: typeof message.playerId === 'string' ? message.playerId : undefined,
+      };
+    }
+    if (
+      message?.kind === 'resolveBoutDirectly' &&
+      typeof message.boutId === 'string' &&
+      typeof message.winnerId === 'string'
+    ) {
+      return { kind: 'resolveBoutDirectly', boutId: message.boutId, winnerId: message.winnerId };
     }
     if (message?.kind === 'trimCull' && Array.isArray(message.survivorIds)) {
       return { kind: 'trimCull', survivorIds: message.survivorIds.filter((id) => typeof id === 'string') };
@@ -218,6 +230,7 @@ export async function startShowServer({
   // joining should not mean forty walks of every network adapter, and the Stage
   // and the console must not be able to disagree about the address.
   const joinHost = reachableHost();
+  const isRehearsal = logPath === REHEARSAL_LOG_PATH;
 
   wss.on('connection', (client) => {
     let playerId: string | undefined;
@@ -231,7 +244,7 @@ export async function startShowServer({
       playerId = id;
     };
 
-    send(client, { kind: 'serverInfo', joinHost });
+    send(client, { kind: 'serverInfo', joinHost, isRehearsal });
     send(client, { kind: 'state', state: shown(state) });
 
     client.on('message', (raw) => {
@@ -270,8 +283,9 @@ export async function startShowServer({
         // The Player is whoever this socket claimed, so a phone can only ever
         // answer for itself. Submitting on someone else's behalf is ticket 08's
         // fallback, and it gets the same rule through the same planner.
-        if (playerId === undefined) return;
-        const plan = planSubmitAnswer(state, { playerId, optionId: message.optionId });
+        const targetPlayerId = isPresenter && message.playerId ? message.playerId : playerId;
+        if (targetPlayerId === undefined) return;
+        const plan = planSubmitAnswer(state, { playerId: targetPlayerId, optionId: message.optionId });
         if (plan.outcome === 'recorded') record(plan.event);
         // The acknowledgement is about this socket's own submission, so it goes
         // to this socket alone and says nothing about anybody else's.
@@ -326,6 +340,13 @@ export async function startShowServer({
         if (!isPresenter) return;
         const plan = planRerunBout(state);
         if (plan.outcome === 'rerun') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'resolveBoutDirectly') {
+        if (!isPresenter) return;
+        const plan = planResolveBoutDirectly(state, message.boutId, message.winnerId);
+        if (plan.outcome === 'resolved') record(plan.event);
         return;
       }
 

@@ -6,20 +6,29 @@ Simulated Players arrived back in ticket 03, where they were needed to test the 
 
 **Blocked by:** 05 — Pera o Kahon. The fallback has to cover a finished show, not half of one.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Every phase is drivable from the Backbone alone with no phones connected, including submitting an answer on a Player's behalf and resolving a bout directly
-- [ ] A Presenter can run the whole show from the Backbone without a hotspot, a server reachable from outside, or a single real phone
-- [ ] Connection count and error state are visible at a glance on the Backbone, so the Presenter can decide whether to continue or fall back mid-show
-- [ ] Pinned draws make a full rehearsal reproduce identically on every run
-- [ ] A rehearsal cannot become the real show by accident: it writes to a different log, and the Backbone says which one is running
-- [ ] A rehearsal runs the entire show — join, Cull, Bracket, finale, deck — with no network and no phones
-- [ ] A reload or an unexpected error during a show does not end it or lose the roster
-- [ ] A single Player's phone failing mid-show does not block the round for everyone else
-- [ ] The whole show starts from one command, so setup on the day is a single step rather than a checklist
-- [ ] The join link on the Stage is also shown as a scannable code, so forty phones do not type an address off a projector
+- [x] Every phase is drivable from the Backbone alone with no phones connected, including submitting an answer on a Player's behalf and resolving a bout directly
+- [x] A Presenter can run the whole show from the Backbone without a hotspot, a server reachable from outside, or a single real phone
+- [x] Connection count and error state are visible at a glance on the Backbone, so the Presenter can decide whether to continue or fall back mid-show
+- [x] Pinned draws make a full rehearsal reproduce identically on every run
+- [x] A rehearsal cannot become the real show by accident: it writes to a different log, and the Backbone says which one is running
+- [x] A rehearsal runs the entire show — join, Cull, Bracket, finale, deck — with no network and no phones
+- [x] A reload or an unexpected error during a show does not end it or lose the roster
+- [x] A single Player's phone failing mid-show does not block the round for everyone else
+- [x] The whole show starts from one command, so setup on the day is a single step rather than a checklist
+- [x] The join link on the Stage is also shown as a scannable code, so forty phones do not type an address off a projector
 
 ## Comments
+
+### Implemented and Verified on 2026-10-15
+
+- **Direct Bout Resolution**: Added pure event `boutResolvedDirectly` and `planResolveBoutDirectly` allowing the Presenter on the Backbone to declare a bout winner directly with instant bracket propagation.
+- **Answer Submission on Behalf**: Presenter can submit answers on behalf of any player with `standing === 'in'` during Cull or Bout questions if a phone fails or disconnects, while ADR-0004 strictly prevents player phones from submitting on behalf of others.
+- **Connection Health & Safety Badges**: Backbone header displays real-time connection ratio (`connected / total`), disconnected player alerts mid-show, and distinct Rehearsal (`rehearsal-log.json`) vs Live Show (`event-log.json`) badges.
+- **Scannable QR Code**: Added responsive SVG QR code on Stage during `joining` phase so phones can join without typing projector URLs.
+- **Single Command Operation**: `npm start` (live), `npm run rehearse` (pinned zero-phone dry-run), and `npm run resume` (crash recovery from log) provide turn-key startup.
+- **QA Audit**: Passed full audit by `@Checker` (`STATUS: PASS`). 306 tests passing, mutation testing verified, clean typecheck and production build.
 
 ### Choose a vehicle that tests the control, not just the refusal
 

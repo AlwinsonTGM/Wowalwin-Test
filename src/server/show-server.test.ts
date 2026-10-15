@@ -12,6 +12,7 @@ import { copy, showConfig } from '../content/show.ts';
 import { cullQuestions, boutQuestions } from '../content/questions.ts';
 import { Pera } from '../content/prizes.ts';
 import type { GameEvent } from '../game/events.ts';
+import { REHEARSAL_LOG_PATH } from './config.ts';
 
 const aTempLog = () => join(mkdtempSync(join(tmpdir(), 'wowolwin-')), 'event-log.json');
 
@@ -58,6 +59,13 @@ function surface(port: number) {
     ready: new Promise<void>((resolve) => ws.on('open', () => resolve())),
   };
 }
+
+const stateWhere = async (s: ReturnType<typeof surface>, ok: (state: ShownState) => boolean): Promise<ShownState> => {
+  for (;;) {
+    const message = (await s.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+    if (ok(message.state)) return message.state;
+  }
+};
 
 describe('the join link', () => {
   it('tells a surface the hotspot address a phone can actually reach', async () => {
@@ -512,13 +520,6 @@ describe('the cull over the wire', () => {
       await withServer(run);
     } finally {
       vi.useRealTimers();
-    }
-  };
-
-  const stateWhere = async (s: ReturnType<typeof surface>, ok: (state: ShownState) => boolean): Promise<ShownState> => {
-    for (;;) {
-      const message = (await s.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
-      if (ok(message.state)) return message.state;
     }
   };
 
@@ -1122,6 +1123,158 @@ describe('the event log on disk', () => {
 
         expect(seenByStage.state.deck.active).toBe(false);
       });
+    });
+  });
+
+  describe('fallback and rehearsal (ticket 08)', () => {
+    it('reports isRehearsal in serverInfo when logPath is REHEARSAL_LOG_PATH', async () => {
+      const server = await startShowServer({ port: 0, logPath: REHEARSAL_LOG_PATH });
+      try {
+        const client = surface(server.port);
+        await client.ready;
+        const info = (await client.next('serverInfo')) as Extract<ServerMessage, { kind: 'serverInfo' }>;
+        expect(info.isRehearsal).toBe(true);
+      } finally {
+        await server.close();
+      }
+    });
+
+    it('allows Presenter to submit an answer on a Player’s behalf', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const question = cullQuestions[0]!;
+        await withServer(async (port) => {
+          const presenter = surface(port);
+          const playerPhone = surface(port);
+          const stage = surface(port);
+
+          await Promise.all([presenter.ready, playerPhone.ready, stage.ready]);
+          await Promise.all([presenter.next('state'), playerPhone.next('state'), stage.next('state')]);
+
+          // Player joins
+          playerPhone.send({ kind: 'join', name: 'Ana' });
+          const joinAck = (await playerPhone.next('joinAck')) as Extract<ServerMessage, { kind: 'joinAck' }>;
+          const playerId = joinAck.token!;
+          await Promise.all([presenter.next('state'), playerPhone.next('state'), stage.next('state')]);
+
+          // Presenter starts show and presents question
+          presenter.send({ kind: 'startShow' });
+          await Promise.all([presenter.next('state'), playerPhone.next('state'), stage.next('state')]);
+
+          presenter.send({ kind: 'presentQuestion' });
+          await Promise.all([presenter.next('state'), playerPhone.next('state'), stage.next('state')]);
+
+          // Presenter submits answer on Ana's behalf
+          presenter.drain();
+          presenter.send({ kind: 'submitAnswer', optionId: question.correctOptionId, playerId });
+          const ack = (await presenter.next('answerAck')) as Extract<ServerMessage, { kind: 'answerAck' }>;
+          expect(ack.outcome).toBe('recorded');
+
+          // Advance timer so answer window closes
+          await vi.advanceTimersByTimeAsync(showConfig.timings.answerSeconds * 1000 + 100);
+          await stateWhere(presenter, (state) => state.phase === 'revealPending');
+
+          // Reveal the question and verify Ana's submission was included
+          presenter.send({ kind: 'reveal' });
+          const revealed = await stateWhere(presenter, (state) => state.phase === 'revealed');
+          expect(revealed.answer?.submissions).toEqual([
+            { playerId, optionId: question.correctOptionId },
+          ]);
+          expect(revealed.roster.find((p) => p.id === playerId)?.standing).toBe('in');
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('prevents a Player phone from submitting on another player’s behalf (ADR-0004 guard)', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const question = cullQuestions[0]!;
+        await withServer(async (port) => {
+          const presenter = surface(port);
+          const player1 = surface(port);
+          const player2 = surface(port);
+
+          await Promise.all([presenter.ready, player1.ready, player2.ready]);
+          await Promise.all([presenter.next('state'), player1.next('state'), player2.next('state')]);
+
+          player1.send({ kind: 'join', name: 'Ana' });
+          const join1 = (await player1.next('joinAck')) as Extract<ServerMessage, { kind: 'joinAck' }>;
+          const p1Id = join1.token!;
+
+          player2.send({ kind: 'join', name: 'Ben' });
+          const join2 = (await player2.next('joinAck')) as Extract<ServerMessage, { kind: 'joinAck' }>;
+          const p2Id = join2.token!;
+
+          presenter.send({ kind: 'startShow' });
+          await Promise.all([presenter.next('state'), player1.next('state'), player2.next('state')]);
+
+          presenter.send({ kind: 'presentQuestion' });
+          await Promise.all([presenter.next('state'), player1.next('state'), player2.next('state')]);
+
+          // Player 2 attempts to submit on behalf of Player 1
+          player2.drain();
+          player2.send({ kind: 'submitAnswer', optionId: question.correctOptionId, playerId: p1Id });
+          const ack = (await player2.next('answerAck')) as Extract<ServerMessage, { kind: 'answerAck' }>;
+          // The server only records for player 2's own id (p2Id)
+          expect(ack.outcome).toBe('recorded');
+
+          // Advance timer so answer window closes
+          await vi.advanceTimersByTimeAsync(showConfig.timings.answerSeconds * 1000 + 100);
+          await stateWhere(presenter, (state) => state.phase === 'revealPending');
+
+          // Close and reveal
+          presenter.send({ kind: 'reveal' });
+          const revealed = await stateWhere(presenter, (state) => state.phase === 'revealed');
+          // Ana (p1Id) did not submit! Only Ben (p2Id) submitted!
+          expect(revealed.answer?.submissions.map((s) => s.playerId)).toEqual([p2Id]);
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('allows Presenter to resolve a bout directly over the wire', async () => {
+      const entrants = ['p1', 'p2'];
+      const seedLog: GameEvent[] = [
+        { type: 'playerJoined', playerId: 'p1', name: 'Ana' },
+        { type: 'playerJoined', playerId: 'p2', name: 'Ben' },
+        { type: 'showStarted' },
+        { type: 'questionPresented', questionId: cullQuestions[0]!.id, at: 1000 },
+        { type: 'answerSubmitted', playerId: 'p1', optionId: cullQuestions[0]!.correctOptionId },
+        { type: 'answerSubmitted', playerId: 'p2', optionId: cullQuestions[0]!.correctOptionId },
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+        { type: 'bracketSeeded', entrants },
+      ];
+
+      await withServer(async (port) => {
+        const presenter = surface(port);
+        const stage = surface(port);
+        const player = surface(port);
+
+        await Promise.all([presenter.ready, stage.ready, player.ready]);
+        await Promise.all([presenter.next('state'), stage.next('state'), player.next('state')]);
+
+        // Claim player place on player socket so it loses presenter controls
+        player.send({ kind: 'join', name: 'Other' });
+        await player.next('joinAck');
+
+        stage.drain();
+        player.drain();
+
+        // Player tries to resolve bout directly - should be ignored
+        player.send({ kind: 'resolveBoutDirectly', boutId: 'bout-7', winnerId: 'p1' });
+
+        // Presenter resolves bout directly for p2
+        presenter.send({ kind: 'resolveBoutDirectly', boutId: 'bout-7', winnerId: 'p2' });
+
+        const onStage = (await stage.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+        expect(onStage.state.bracket?.finalistId).toBe('p2');
+        expect(onStage.state.roster.find((p) => p.id === 'p1')?.standing).toBe('out');
+        expect(onStage.state.roster.find((p) => p.id === 'p2')?.standing).toBe('in');
+      }, seedLog);
     });
   });
 });

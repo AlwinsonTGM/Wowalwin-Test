@@ -825,3 +825,120 @@ h1 {
   font-size: 1.1rem;
   color: #b9ac9a;
 }
+
+/* Ticket 08: Fallback and Rehearsal */
+
+.surface--backbone header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-status {
+  text-align: right;
+}
+
+.badge--mode {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge--rehearsal {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+}
+
+.badge--show {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #10b981;
+}
+
+.connection-health {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.connection-alert {
+  margin: 0;
+  padding: 0.6rem 1rem;
+  background: #fee2e2;
+  border: 1px solid var(--rose);
+  border-radius: 0.4rem;
+}
+
+.submit-on-behalf {
+  margin-top: 1rem;
+  padding: 0.8rem;
+  background: #fdfbf7;
+  border: 1px solid #e3dacb;
+  border-radius: 0.4rem;
+}
+
+.submit-on-behalf h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.submit-on-behalf-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.submit-on-behalf-controls select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #cfc4b2;
+  border-radius: 0.3rem;
+  background: #fff;
+  font-size: 0.85rem;
+}
+
+.direct-resolution {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.direct-resolution-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.join-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3rem;
+  flex-wrap: wrap;
+}
+
+.join-qr {
+  background: #fff;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  display: inline-flex;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.join-qr svg {
+  display: block;
+  width: 220px;
+  height: 220px;
+}

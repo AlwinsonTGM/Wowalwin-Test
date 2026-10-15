@@ -1570,4 +1570,145 @@ describe('the bracket on the surfaces', () => {
       });
     });
   });
+
+  describe('fallback and rehearsal (ticket 08)', () => {
+    it('displays the rehearsal badge or real show badge on Backbone', () => {
+      const { rerender } = render(
+        <Backbone
+          state={aShow()}
+          joinUrl={JOIN_URL}
+          connection="online"
+          isRehearsal={true}
+          onStartShow={() => {}}
+          onPresentQuestion={() => {}}
+          onReveal={() => {}}
+          onSimulate={() => {}}
+          onClearSimulated={() => {}}
+          onSimulateAnswers={() => {}}
+          onSetSimulation={() => {}}
+        />,
+      );
+      expect(screen.getByText(copy.common.rehearsalLog)).toBeTruthy();
+
+      rerender(
+        <Backbone
+          state={aShow()}
+          joinUrl={JOIN_URL}
+          connection="online"
+          isRehearsal={false}
+          onStartShow={() => {}}
+          onPresentQuestion={() => {}}
+          onReveal={() => {}}
+          onSimulate={() => {}}
+          onClearSimulated={() => {}}
+          onSimulateAnswers={() => {}}
+          onSetSimulation={() => {}}
+        />,
+      );
+      expect(screen.getByText(copy.common.showLog)).toBeTruthy();
+    });
+
+    it('shows connection count and alerts when a player disconnects mid-show', () => {
+      const connectedPlayer: RosterPlayer = { id: 'p1', name: 'Ana', connected: true, standing: 'in', simulated: false };
+      const droppedPlayer: RosterPlayer = { id: 'p2', name: 'Ben', connected: false, standing: 'in', simulated: false };
+
+      render(
+        <Backbone
+          state={aShow([connectedPlayer, droppedPlayer], 'started')}
+          joinUrl={JOIN_URL}
+          connection="online"
+          onStartShow={() => {}}
+          onPresentQuestion={() => {}}
+          onReveal={() => {}}
+          onSimulate={() => {}}
+          onClearSimulated={() => {}}
+          onSimulateAnswers={() => {}}
+          onSetSimulation={() => {}}
+        />,
+      );
+
+      // Connection health is visible
+      expect(screen.getByText(copy.backbone.connectionHealth(1, 2))).toBeTruthy();
+      // Disconnection warning alert is displayed
+      expect(screen.getByText(copy.backbone.disconnectedAlert(1))).toBeTruthy();
+    });
+
+    it('allows Presenter to submit an answer on a player’s behalf from Backbone during answering', () => {
+      const onSubmitAnswerOnBehalf = vi.fn();
+      const p1: RosterPlayer = { id: 'p1', name: 'Ana', connected: false, standing: 'in', simulated: false };
+
+      render(
+        <Backbone
+          state={asking({ roster: [p1] })}
+          joinUrl={JOIN_URL}
+          connection="online"
+          onSubmitAnswerOnBehalf={onSubmitAnswerOnBehalf}
+          onStartShow={() => {}}
+          onPresentQuestion={() => {}}
+          onReveal={() => {}}
+          onSimulate={() => {}}
+          onClearSimulated={() => {}}
+          onSimulateAnswers={() => {}}
+          onSetSimulation={() => {}}
+        />,
+      );
+
+      expect(screen.getByText(copy.backbone.submitOnBehalfHeading)).toBeTruthy();
+      const submitBtn = screen.getByRole('button', { name: copy.backbone.submitOnBehalfButton });
+      fireEvent.click(submitBtn);
+
+      expect(onSubmitAnswerOnBehalf).toHaveBeenCalledWith('p1', theQuestion.options[0]!.id);
+    });
+
+    it('provides direct bout resolution buttons on Backbone during an active bout', () => {
+      const onResolveBoutDirectly = vi.fn();
+      const p1: RosterPlayer = { id: 'p1', name: 'Ana', connected: true, standing: 'in', simulated: false };
+      const p2: RosterPlayer = { id: 'p2', name: 'Ben', connected: false, standing: 'in', simulated: false };
+
+      const bracket: BracketState = {
+        bouts: [
+          { id: 'bout-1', round: 'quarter', index: 0, player1Id: 'p1', player2Id: 'p2', winnerId: null },
+        ],
+        currentBoutId: 'bout-1',
+        finalistId: null,
+      };
+
+      render(
+        <Backbone
+          state={{ ...asking({ roster: [p1, p2] }), bracket }}
+          joinUrl={JOIN_URL}
+          connection="online"
+          onResolveBoutDirectly={onResolveBoutDirectly}
+          onStartShow={() => {}}
+          onPresentQuestion={() => {}}
+          onReveal={() => {}}
+          onSimulate={() => {}}
+          onClearSimulated={() => {}}
+          onSimulateAnswers={() => {}}
+          onSetSimulation={() => {}}
+        />,
+      );
+
+      const declareP1 = screen.getByRole('button', { name: copy.backbone.declareWinner('Ana') });
+      const declareP2 = screen.getByRole('button', { name: copy.backbone.declareWinner('Ben') });
+
+      expect(declareP1).toBeTruthy();
+      expect(declareP2).toBeTruthy();
+
+      fireEvent.click(declareP1);
+      expect(onResolveBoutDirectly).toHaveBeenCalledWith('bout-1', 'p1');
+
+      fireEvent.click(declareP2);
+      expect(onResolveBoutDirectly).toHaveBeenCalledWith('bout-1', 'p2');
+    });
+
+    it('renders a scannable QR code on the Stage during joining phase', async () => {
+      render(<Stage state={aShow()} joinUrl={JOIN_URL} />);
+
+      // The QR container with the accessible label is rendered
+      const qrEl = await screen.findByLabelText(copy.stage.joinQrLabel);
+      expect(qrEl).toBeTruthy();
+      expect(qrEl.innerHTML).toContain('<svg');
+    });
+  });
 });

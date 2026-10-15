@@ -118,6 +118,10 @@ export const copy = {
       online: 'Nakakonekta',
       offline: 'Nawalan ng koneksyon',
     },
+    rehearsalBadge: 'Rehearsal',
+    showBadge: 'Tunay na Show',
+    connectionHealth: (connected: number, total: number) => `${connected} / ${total} nakakonekta`,
+    disconnectedAlert: (count: number) => `Babala: May ${count} Player na nawalan ng koneksyon!`,
     startShow: 'Simulan ang show',
     showStarted: 'Nagsimula na ang show. Hindi na makakapasok ang bago.',
     joinLinkHeading: 'Link para sa mga Players',
@@ -133,6 +137,16 @@ export const copy = {
     cueHeading: 'Line para sa Presenter',
     submitted: (count: number) => `${count} ang nagsagot`,
     submittedNone: 'Walang nagsagot.',
+
+    /** Submitting on behalf of a Player (ticket 08 fallback) */
+    submitOnBehalfHeading: 'Sagutan para sa Player',
+    submitOnBehalfPlayerLabel: 'Player',
+    submitOnBehalfOptionLabel: 'Sagot',
+    submitOnBehalfButton: 'Isumite ang sagot',
+
+    /** Direct Bout Resolution (ticket 08 fallback) */
+    directResolutionHeading: 'Direktang Resolusyon sa Bout',
+    declareWinner: (name: string) => `Ideklara si ${name} bilang Panalo`,
 
     /** The cull's own numbers, on the Presenter's screen, at all times. */
     survivorsHeading: 'Nakalaan',
@@ -222,6 +236,7 @@ export const copy = {
     title: 'Wowolwin',
     joinHeading: 'Now ang mga Players',
     joinInstruction: 'Buksan ito sa phone mo, saka pumunta sa “Join the Show”',
+    joinQrLabel: 'QR code para sa Join URL',
     rosterHeading: 'Nakapasok na Players',
     rosterEmpty: 'Hintayin natin ang mga Players…',
     rosterCount: (joined: number) => `${joined} ang naka-join`,

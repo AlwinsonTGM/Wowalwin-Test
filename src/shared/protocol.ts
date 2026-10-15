@@ -7,7 +7,7 @@ export type ClientMessage =
   | { kind: 'startShow' }
   /** No question id: the machine picks the next one off its queue. */
   | { kind: 'presentQuestion' }
-  | { kind: 'submitAnswer'; optionId: string }
+  | { kind: 'submitAnswer'; optionId: string; playerId?: string }
   | { kind: 'reveal' }
   /** Ticket 03: the rehearsal room is seeded into the log, never connected. */
   | { kind: 'simulatePlayers'; count: number }
@@ -29,12 +29,14 @@ export type ClientMessage =
   | { kind: 'closeDeck' }
   | { kind: 'setDeckSlide'; slideIndex: number }
   | { kind: 'nextDeckSlide' }
-  | { kind: 'prevDeckSlide' };
+  | { kind: 'prevDeckSlide' }
+  /** Ticket 08: Direct bout resolution */
+  | { kind: 'resolveBoutDirectly'; boutId: string; winnerId: string };
 
 /** What the server tells every surface. */
 export type ServerMessage =
   | { kind: 'state'; state: ShownState }
-  | { kind: 'serverInfo'; joinHost: string | null }
+  | { kind: 'serverInfo'; joinHost: string | null; isRehearsal?: boolean }
   | { kind: 'joinAck'; outcome: JoinOutcome; token?: string }
   /** About the sender's own submission, and nobody else's. */
   | { kind: 'answerAck'; outcome: AnswerOutcome };

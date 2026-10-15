@@ -60,6 +60,9 @@ function App() {
       onSetDeckSlide={show.setDeckSlide}
       onNextDeckSlide={show.nextDeckSlide}
       onPrevDeckSlide={show.prevDeckSlide}
+      isRehearsal={show.isRehearsal}
+      onSubmitAnswerOnBehalf={(playerId, optionId) => show.submitAnswer(optionId, playerId)}
+      onResolveBoutDirectly={show.resolveBoutDirectly}
     />
   );
 }

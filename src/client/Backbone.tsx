@@ -34,6 +34,9 @@ export function Backbone({
   onSetDeckSlide,
   onNextDeckSlide,
   onPrevDeckSlide,
+  isRehearsal = false,
+  onSubmitAnswerOnBehalf,
+  onResolveBoutDirectly,
 }: {
   state: ShownState;
   joinUrl: string | null | undefined;
@@ -58,6 +61,9 @@ export function Backbone({
   onSetDeckSlide?: (slideIndex: number) => void;
   onNextDeckSlide?: () => void;
   onPrevDeckSlide?: () => void;
+  isRehearsal?: boolean;
+  onSubmitAnswerOnBehalf?: (playerId: string, optionId: string) => void;
+  onResolveBoutDirectly?: (boutId: string, winnerId: string) => void;
 }) {
   const full = state.roster.length >= showConfig.playerCap;
   // `?? null` for the same reason as the Stage: "no question yet" has to be the
@@ -76,16 +82,55 @@ export function Backbone({
 
   const [selectedTrimIds, setSelectedTrimIds] = useState<string[]>([]);
   const [reversingPlayerId, setReversingPlayerId] = useState<string | null>(null);
+  const [behalfPlayerId, setBehalfPlayerId] = useState<string>('');
+  const [behalfOptionId, setBehalfOptionId] = useState<string>('');
 
   const currentBout = activeBout(state);
   const isBoutTied = state.bracket !== null && state.phase === 'revealed' && currentBout?.winnerId === null && state.answer !== null;
 
+  const eligiblePlayers =
+    state.bracket !== null && currentBout
+      ? state.roster.filter(
+          (p) =>
+            (p.id === currentBout.player1Id || p.id === currentBout.player2Id) &&
+            p.standing === 'in',
+        )
+      : state.roster.filter((p) => p.standing === 'in');
+
+  const selectedBehalfPlayerId = eligiblePlayers.some((p) => p.id === behalfPlayerId)
+    ? behalfPlayerId
+    : (eligiblePlayers[0]?.id ?? '');
+  const selectedBehalfOptionId = question?.options.some((o) => o.id === behalfOptionId)
+    ? behalfOptionId
+    : (question?.options[0]?.id ?? '');
+
   return (
     <main className="surface surface--backbone">
       <header>
-        <h1>{copy.backbone.title}</h1>
-        <p className={`status status--${connection}`}>{copy.backbone.status[connection]}</p>
+        <div className="header-title">
+          <h1>{copy.backbone.title}</h1>
+          <span className={`badge badge--mode ${isRehearsal ? 'badge--rehearsal' : 'badge--show'}`}>
+            {isRehearsal ? copy.common.rehearsalLog : copy.common.showLog}
+          </span>
+        </div>
+        <div className="header-status">
+          <p className={`status status--${connection}`}>{copy.backbone.status[connection]}</p>
+          <p className="connection-health">
+            {copy.backbone.connectionHealth(
+              state.roster.filter((p) => p.connected).length,
+              state.roster.length,
+            )}
+          </p>
+        </div>
       </header>
+
+      {(() => {
+        const disconnectedCount = state.roster.filter((p) => !p.connected && p.standing === 'in').length;
+        if (disconnectedCount > 0 && state.phase !== 'joining') {
+          return <p className="warning connection-alert">{copy.backbone.disconnectedAlert(disconnectedCount)}</p>;
+        }
+        return null;
+      })()}
 
       <section className="panel">
         <h2>{copy.backbone.joinLinkHeading}</h2>
@@ -210,6 +255,34 @@ export function Backbone({
 
             {isBoutTied && <p className="warning">{copy.stage.tieNoSubmissions}</p>}
 
+            {currentBout && currentBout.winnerId === null && currentBout.player1Id && currentBout.player2Id && onResolveBoutDirectly && (
+              <div className="direct-resolution">
+                <span className="label">{copy.backbone.directResolutionHeading}: </span>
+                <div className="direct-resolution-buttons">
+                  <button
+                    type="button"
+                    className="ghost ghost--small"
+                    onClick={() => onResolveBoutDirectly(currentBout.id, currentBout.player1Id!)}
+                    disabled={connection !== 'online'}
+                  >
+                    {copy.backbone.declareWinner(
+                      state.roster.find((p) => p.id === currentBout.player1Id)?.name ?? 'Player 1',
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost ghost--small"
+                    onClick={() => onResolveBoutDirectly(currentBout.id, currentBout.player2Id!)}
+                    disabled={connection !== 'online'}
+                  >
+                    {copy.backbone.declareWinner(
+                      state.roster.find((p) => p.id === currentBout.player2Id)?.name ?? 'Player 2',
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="ambiguous-rules">
               <span className="label">{copy.backbone.ambiguousRulesHeading}: </span>
               <p className="note">{copy.backbone.ambiguousRules}</p>
@@ -307,6 +380,58 @@ export function Backbone({
           <p className="countdown" role="timer">
             {copy.backbone.countdown(seconds)}
           </p>
+        )}
+
+        {state.phase === 'answering' && question !== null && eligiblePlayers.length > 0 && onSubmitAnswerOnBehalf && (
+          <div className="submit-on-behalf">
+            <h3>{copy.backbone.submitOnBehalfHeading}</h3>
+            <div className="submit-on-behalf-controls">
+              <label>
+                <span className="label">{copy.backbone.submitOnBehalfPlayerLabel}: </span>
+                <select
+                  aria-label={copy.backbone.submitOnBehalfPlayerLabel}
+                  value={selectedBehalfPlayerId}
+                  onChange={(e) => setBehalfPlayerId(e.target.value)}
+                  disabled={connection !== 'online'}
+                >
+                  {eligiblePlayers.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {!p.connected ? `(${copy.backbone.connection.offline})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span className="label">{copy.backbone.submitOnBehalfOptionLabel}: </span>
+                <select
+                  aria-label={copy.backbone.submitOnBehalfOptionLabel}
+                  value={selectedBehalfOptionId}
+                  onChange={(e) => setBehalfOptionId(e.target.value)}
+                  disabled={connection !== 'online'}
+                >
+                  {question.options.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <button
+                type="button"
+                className="ghost ghost--small"
+                disabled={connection !== 'online'}
+                onClick={() => {
+                  if (selectedBehalfPlayerId && selectedBehalfOptionId) {
+                    onSubmitAnswerOnBehalf(selectedBehalfPlayerId, selectedBehalfOptionId);
+                  }
+                }}
+              >
+                {copy.backbone.submitOnBehalfButton}
+              </button>
+            </div>
+          </div>
         )}
 
         {state.phase === 'revealPending' && <p className="countdown is-closed">{copy.backbone.windowClosed}</p>}

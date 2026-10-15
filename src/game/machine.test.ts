@@ -13,6 +13,7 @@ import {
   planReveal,
   planResume,
   planRerunBout,
+  planResolveBoutDirectly,
   planReverseElimination,
   planSeedBracket,
   planSimulateAnswers,
@@ -1694,6 +1695,118 @@ describe('the bracket', () => {
 
       const entSlides = deckSlides.filter((s) => s.kind === 'entrepreneur');
       expect(entSlides).toHaveLength(8);
+    });
+  });
+
+  describe('direct bout resolution (ticket 08 fallback)', () => {
+    const entrants = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'];
+    const bracketEvents: GameEvent[] = [
+      ...entrants.map((id) => aPlayer(id, `Player ${id}`)),
+      showStarted,
+      firstQuestion(),
+      ...entrants.map((id) => submits(id, questionOne.correctOptionId)),
+      ...closed,
+      { type: 'bracketSeeded', entrants },
+    ];
+
+    it('refuses direct resolution when not in bracket', () => {
+      const state = fold([aPlayer('p1', 'Ana'), showStarted]);
+      expect(planResolveBoutDirectly(state, 'bout-1', 'p1').outcome).toBe('notInBracket');
+    });
+
+    it('refuses direct resolution when bout does not exist', () => {
+      const state = fold(bracketEvents);
+      expect(planResolveBoutDirectly(state, 'bout-999', 'p1').outcome).toBe('boutNotFound');
+    });
+
+    it('refuses direct resolution when declared winner is not a competitor in the bout', () => {
+      const state = fold(bracketEvents);
+      expect(planResolveBoutDirectly(state, 'bout-1', 'p3').outcome).toBe('invalidWinner');
+    });
+
+    it('refuses direct resolution when bout is already resolved', () => {
+      const state = fold([
+        ...bracketEvents,
+        { type: 'boutResolvedDirectly', boutId: 'bout-1', winnerId: 'p1' },
+      ]);
+      expect(planResolveBoutDirectly(state, 'bout-1', 'p2').outcome).toBe('alreadyResolved');
+    });
+
+    it('plans direct resolution for an active bout', () => {
+      const state = fold(bracketEvents);
+      const plan = planResolveBoutDirectly(state, 'bout-1', 'p1');
+      expect(plan.outcome).toBe('resolved');
+      if (plan.outcome !== 'resolved') return;
+      expect(plan.event).toEqual({
+        type: 'boutResolvedDirectly',
+        boutId: 'bout-1',
+        winnerId: 'p1',
+      });
+    });
+
+    it('folds direct resolution: advances winner, eliminates loser, and propagates forward', () => {
+      const [boutQ] = boutQuestions;
+      if (!boutQ) throw new Error('bout question required');
+
+      // Present question for bout-1
+      const askingState = fold([
+        ...bracketEvents,
+        { type: 'questionPresented', questionId: boutQ.id, at: 1000 },
+        submits('p1', boutQ.options[0]!.id),
+      ]);
+
+      expect(askingState.sealed).toHaveLength(1);
+
+      // Resolve directly for p1
+      const resolved = fold([
+        ...bracketEvents,
+        { type: 'questionPresented', questionId: boutQ.id, at: 1000 },
+        submits('p1', boutQ.options[0]!.id),
+        { type: 'boutResolvedDirectly', boutId: 'bout-1', winnerId: 'p1' },
+      ]);
+
+      // Phase is revealed, sealed is cleared, answer is formed
+      expect(resolved.phase).toBe('revealed');
+      expect(resolved.sealed).toEqual([]);
+      expect(resolved.answer?.questionId).toBe(boutQ.id);
+
+      // Winner and loser standings
+      expect(resolved.roster.find((p) => p.id === 'p1')?.standing).toBe('in');
+      expect(resolved.roster.find((p) => p.id === 'p2')?.standing).toBe('out');
+
+      // Bout state
+      const bout1 = resolved.bracket?.bouts.find((b) => b.id === 'bout-1');
+      expect(bout1?.winnerId).toBe('p1');
+      expect(bout1?.resolvedBy).toBe('manual');
+
+      // Propagated to Semifinal 1 (bout-5)
+      const bout5 = resolved.bracket?.bouts.find((b) => b.id === 'bout-5');
+      expect(bout5?.player1Id).toBe('p1');
+    });
+
+    it('crowns the finalist when resolving the final bout directly', () => {
+      // In a 2-entrant bracket, bout-7 is the final
+      const twoEntrants = ['p1', 'p2'];
+      const finalEvents: GameEvent[] = [
+        ...twoEntrants.map((id) => aPlayer(id, `Player ${id}`)),
+        showStarted,
+        firstQuestion(),
+        ...twoEntrants.map((id) => submits(id, questionOne.correctOptionId)),
+        ...closed,
+        { type: 'bracketSeeded', entrants: twoEntrants },
+      ];
+
+      const state = fold(finalEvents);
+      expect(state.bracket?.currentBoutId).toBe('bout-7');
+
+      const resolved = fold([
+        ...finalEvents,
+        { type: 'boutResolvedDirectly', boutId: 'bout-7', winnerId: 'p2' },
+      ]);
+
+      expect(resolved.bracket?.finalistId).toBe('p2');
+      expect(resolved.roster.find((p) => p.id === 'p1')?.standing).toBe('out');
+      expect(resolved.roster.find((p) => p.id === 'p2')?.standing).toBe('in');
     });
   });
 });

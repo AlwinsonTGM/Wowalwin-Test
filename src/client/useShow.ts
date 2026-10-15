@@ -40,6 +40,7 @@ export function useShow() {
   });
   /** undefined until the server says; null once it has said there is none. */
   const [joinHost, setJoinHost] = useState<string | null | undefined>(undefined);
+  const [isRehearsal, setIsRehearsal] = useState<boolean>(false);
   const [connection, setConnection] = useState<Connection>('connecting');
   const [token, setToken] = useState<string | null>(() =>
     isPlayerPhone() ? localStorage.getItem(TOKEN_KEY) : null,
@@ -67,7 +68,10 @@ export function useShow() {
         const message = JSON.parse(event.data) as ServerMessage;
 
         if (message.kind === 'state') setState(message.state);
-        if (message.kind === 'serverInfo') setJoinHost(message.joinHost);
+        if (message.kind === 'serverInfo') {
+          setJoinHost(message.joinHost);
+          if (message.isRehearsal !== undefined) setIsRehearsal(message.isRehearsal);
+        }
         if (message.kind === 'answerAck') setAnswerAck(message.outcome);
         if (message.kind === 'joinAck') {
           setAck(message);
@@ -113,6 +117,7 @@ export function useShow() {
   return {
     state,
     connection,
+    isRehearsal,
     me,
     /** The show's answer to a name it would not accept. */
     complaint: outcome ? complaintFor(outcome) : null,
@@ -122,7 +127,7 @@ export function useShow() {
     join: (name: string) => send({ kind: 'join', name }),
     startShow: () => send({ kind: 'startShow' }),
     presentQuestion: () => send({ kind: 'presentQuestion' }),
-    submitAnswer: (optionId: string) => send({ kind: 'submitAnswer', optionId }),
+    submitAnswer: (optionId: string, playerId?: string) => send({ kind: 'submitAnswer', optionId, playerId }),
     reveal: () => send({ kind: 'reveal' }),
     /** The rehearsal room (ticket 03). Seeded server-side, never connected. */
     simulate: (count: number) => send({ kind: 'simulatePlayers', count }),
@@ -133,6 +138,8 @@ export function useShow() {
     trimCull: (survivorIds: string[]) => send({ kind: 'trimCull', survivorIds }),
     seedBracket: (seed?: number) => send({ kind: 'seedBracket', seed }),
     rerunBout: () => send({ kind: 'rerunBout' }),
+    resolveBoutDirectly: (boutId: string, winnerId: string) =>
+      send({ kind: 'resolveBoutDirectly', boutId, winnerId }),
     reverseElimination: (playerId: string) => send({ kind: 'reverseElimination', playerId }),
     /** Finale actions (ticket 05) */
     startFinale: (seed?: number) => send({ kind: 'startFinale', seed }),
