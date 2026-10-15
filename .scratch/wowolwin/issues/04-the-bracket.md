@@ -38,12 +38,16 @@ right that it must be decided explicitly rather than letting the first empty bra
 define it. A Bracket that defends against an empty field is a Bracket that has
 accepted the Cull as broken.
 
-**The cost is one elimination, and it is the smallest sensible one.** The Cull's rule
-becomes: on a reveal, everyone who did not answer correctly is eliminated, *except*
-that when that would leave nobody, the last Player to have submitted keeps their
-place. "Last to have submitted" is already known — ticket 02's fold records
-`answerSubmitted` order, and the Bracket's own earliest-correct rule reads the same
-data. No new state, no new event, no new clock.
+**The full rule, both clauses, lives in ticket 03's Comments.** Summarised: on a
+reveal everyone `in` who did not answer correctly is eliminated, except that the Cull
+never ends with zero survivors — the last submitter keeps their place, and **when
+nobody submitted at all, the first Player who joined does**. That second clause was
+missing when this ruling was first written and @Checker measured the hole: 40 players,
+zero submissions, reveal, `cullComplete` with an empty grid. A frozen room is the
+*likely* outcome on show day, not an edge case, so the floor has to hold there too.
+
+Read 03's amendment before seeding a bracket, because it changes what a valid Cull
+outcome is.
 
 It is not arbitrary: a Player who submitted is a Player the room watched try. The one
 standing at the end is someone who played rather than someone who was spared by a

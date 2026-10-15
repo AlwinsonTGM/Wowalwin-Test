@@ -72,6 +72,57 @@ one survivor" is reachable at all once the bracket runs on top of the cull, and
 it is asserted over all 4,096 second-round answer combinations of a twelve-player
 room. Ticket 04 carries the rest.
 
+### Amendment: the floor the Cull may not go below
+
+Ruled in ticket 04's Comments and measured in ticket 03's own machine, so it lives
+here where the Cull's rule lives rather than drifting into the Bracket.
+
+**The invariant: the Cull never ends with zero survivors.** An eliminated Player
+cannot submit (`planSubmitAnswer` refuses them), so on a reveal everyone `in` who did
+not answer correctly goes — including everyone who never answered. That produces an
+empty room, `cullOver` reports `cullComplete` because 0 ≤ target, and the Bracket is
+handed nothing to seed.
+
+Two clauses, because they answer two different questions and only one of them is
+about who deserves to keep their place:
+
+1. **Somebody submitted.** The last Player to have submitted keeps their place. This
+   is arbitrary too, but it is not arbitrary *silently*: the room watched them try.
+   The ordering already exists — `answerSubmitted` fold order from ticket 02 — and
+   ticket 04's earliest-correct rule reads the same list.
+2. **Nobody submitted at all.** Then the floor cannot come from the submissions,
+   because there are none. It comes from the roster: **the first Player who joined
+   keeps their place.**
+
+Clause 2 exists because it is the *likely* case on show day, not an edge case. Forty
+phones, ten seconds, nobody taps is a completely ordinary outcome — and a frozen room
+is the one thing a live audience is guaranteed to produce at least once. Falling
+through to `cullComplete` with an empty grid would be decided by whatever the first
+silent reveal happened to do.
+
+**Clause 2 is honestly arbitrary.** With nobody answering, the survivor is whoever
+joined first. That is not a meritocratic outcome and it should not pretend to be. The
+argument for it is that *defined and arbitrary* beats *arbitrary and silent* — the
+alternative is not a fairer result, it is the first silent reveal on show day
+deciding it. Someone should not have to debug an empty bracket in a classroom.
+
+**Do not solve this by re-running the round.** It is tempting — the Bracket already
+re-runs a bout when neither Player submitted, so the shape is familiar. It is wrong
+here for one reason: a re-run on a frozen room is an infinite loop, because the room
+is frozen for the same reason the first time. The Bracket can afford the re-run
+because two Players and twenty seconds bound it. Forty Players and a Cull with no
+terminal condition do not.
+
+**A Presenter override is out of scope.** Tapping someone through to the next round
+is a legitimate tool and it belongs to ticket 08's fallback work, where the Presenter
+already has powers for exactly this. It does not belong in the Cull's fold, because a
+show that can stall is a show that needs someone watching it, and the Cull must
+converge unattended.
+
+Ticket 06 is now authoring against this: a Cull question hard enough that nobody at
+all answers right would empty the room without clause 2, so difficulty has to be
+*controlled*, not merely rising.
+
 ### The grid, and why one event flips it
 
 `revealTriggered` was already the cull's resolve point, so it now also marks
