@@ -152,17 +152,23 @@ await server.connect(transport);
 const app = express();
 
 // Enable CORS for web clients like Gemini
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.header('Access-Control-Allow-Headers', '*');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
   next();
 });
 
-app.options('*', (_req, res) => res.sendStatus(200));
-
-app.all('/mcp', async (req, res) => {
+app.all(['/mcp', '/sse'], async (req, res) => {
   await transport.handleRequest(req, res);
+});
+
+app.use('/.well-known', (_req, res) => {
+  res.status(404).json({ error: 'OAuth not required' });
 });
 
 app.get('/', (_req, res) => {
