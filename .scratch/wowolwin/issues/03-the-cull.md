@@ -8,16 +8,16 @@ This ticket also introduces simulated Players and simulated answers, so the Cull
 
 **Status:** ready-for-agent
 
-- [ ] Players can be added to the roster in bulk and can be made to submit answers on a timer or on demand, so the Cull grid can be driven visually without real phones
-- [ ] The simulated roster is controllable from the Backbone and can be torn down cleanly
-- [ ] A whole-room question is presented to every active Player at once
-- [ ] On reveal, Players who submitted correctly survive and everyone else is eliminated, including every Player who did not submit
-- [ ] Every name in the roster flips to survived or eliminated simultaneously on the Stage, and the two states are visually distinct
-- [ ] The cull repeats until ten or fewer Players remain, adapting to however easy or hard the questions turn out to be rather than running a fixed number of questions
-- [ ] The Backbone shows the survivor count at all times
-- [ ] The Backbone warns when the Cull queue is close to exhausted before the target count has been reached
-- [ ] A Player who joins after the cull has begun is told plainly that they cannot play, and their phone still works as a spectator
-- [ ] An eliminated Player's phone says they are out and remains usable rather than freezing on a dead screen
+- [x] Players can be added to the roster in bulk and can be made to submit answers on a timer or on demand, so the Cull grid can be driven visually without real phones
+- [x] The simulated roster is controllable from the Backbone and can be torn down cleanly
+- [x] A whole-room question is presented to every active Player at once
+- [x] On reveal, Players who submitted correctly survive and everyone else is eliminated, including every Player who did not submit
+- [x] Every name in the roster flips to survived or eliminated simultaneously on the Stage, and the two states are visually distinct
+- [x] The cull repeats until ten or fewer Players remain, adapting to however easy or hard the questions turn out to be rather than running a fixed number of questions
+- [x] The Backbone shows the survivor count at all times
+- [x] The Backbone warns when the Cull queue is close to exhausted before the target count has been reached
+- [x] A Player who joins after the cull has begun is told plainly that they cannot play, and their phone still works as a spectator
+- [x] An eliminated Player's phone says they are out and remains usable rather than freezing on a dead screen
 - [ ] The full tournament to a single Finalist terminates in exactly one survivor across every combination of resolution paths
 
 ## Comments
@@ -54,6 +54,93 @@ cheap guard.
 **Testing note.** A seeded roster is a fixture, so seed it in the same shape as the
 event log the room-scale test in ticket 09 already builds — via the temp-log path,
 never the repository's `data/`, and port `0`.
+
+Built on 2026-10-15.
+
+### One box is not done, and cannot be done here
+
+**"The full tournament to a single Finalist terminates in exactly one survivor"**
+is not delivered by this ticket. A tournament needs the Bracket (04) and the
+finale (05); there is no second round to terminate without them, and building a
+bracket here would be exactly the scope this ticket exists to avoid.
+
+What *is* delivered is the cull's half of that property, and it is the half the
+cull is responsible for: **the survivor set never grows.** An eliminated Player
+cannot submit (`planSubmitAnswer` refuses them), so every round's survivors are
+a subset of the last round's. That monotonic shrink is the only reason "exactly
+one survivor" is reachable at all once the bracket runs on top of the cull, and
+it is asserted over all 4,096 second-round answer combinations of a twelve-player
+room. Ticket 04 carries the rest.
+
+### The grid, and why one event flips it
+
+`revealTriggered` was already the cull's resolve point, so it now also marks
+every Player `in` or `out` in the same fold that publishes the answer. That is
+what makes the grid move together rather than name by name: one event, one new
+state, the whole roster. The Stage renders `standing` per name and labels it in
+words as well as in class, because a projector in a bright room with a
+colour-blind audience cannot rely on colour.
+
+### Seeding, not connecting
+
+The Comments above are the constraint and the code follows them: a simulated
+Player is a `playerJoined` event with `simulated: true`, written by the server.
+No socket is involved, so `isPresenter` is untouched and stays the two-term
+guard. A phone that sends `simulatePlayers` records nothing, and there is a test
+that says so.
+
+Simulated answers go through `planSimulateAnswers`, which submits each one via
+`planSubmitAnswer` — the same door a real phone uses. There is no second way
+into the sealed list, so the one-answer rule and the closed window are the same
+rule for a seeded Player as for a person.
+
+Three modes, chosen from the Backbone: `correct`, `wrong` and `mixed`. Mixed is
+right, wrong, silent, repeating by roster order. **No randomness**, on purpose:
+a rehearsal that cannot be replayed identically is no use for practising timing,
+and the generator injection the spec asks for is ticket 08's pinned draws.
+
+### Decisions this ticket and the ADRs left open
+
+- **Arming lives in the state, not the adapter.** `simulation.armed` and
+  `simulation.mode` are folded from an event, so a reload cannot leave the
+  Backbone believing the room is armed when the server does not. The alternative
+  was a server message and a re-send on reconnect, which is more machinery for
+  the same truthfulness.
+- **Seeding and teardown are refused once the show has started.** A roster that
+  changed mid-cull would change the survivor set under the room's feet. The
+  only safe moment is before the Presenter presses start.
+- **A hard round can eliminate everybody.** Nothing in this ticket asks for a
+  guard, so none was invented: the survivor count is on the Backbone at all
+  times, and zero is shown as plainly as ten.
+- **A refused phone and an eliminated phone both keep watching**, and both have
+  their own wording. The Player surface still never renders `state.answer`.
+
+### Verified by breaking it
+
+Every rule in this ticket was mutated to prove the tests bite, not just pass:
+
+| Mutation | What failed |
+| --- | --- |
+| Reveal never eliminates | 10 machine tests |
+| `planNextQuestion` drops the cull gate | 3 tests |
+| An eliminated Player may answer again | the rule test **and** the 4,096-combination property |
+| The Presenter guard is off | 5 server tests, including the new one |
+| The armed room never answers by itself | 4 server tests |
+| Teardown removes the real room too | 2 tests |
+
+The first version of the property test was itself wrong and the mutation check is
+what caught it: at four Players the target of ten made the cull finish after one
+round, so the suite was asserting a thing that never ran. It now uses a
+twelve-player room so a second question genuinely happens, and offers a second
+round to every Player including the one the first round put out — otherwise an
+eliminated name could never come back and the property could never fail.
+
+### What jsdom is not
+
+Nothing here has been on a handset or a projector. The cull grid at forty
+players, the strike-through reading from the back of a room, and whether a phone
+keeps its socket through a reveal are all unverified on real hardware. Ticket 01's
+open rehearsal box is unchanged and still the honest limit on the whole show.
 
 ### Ruling: a rehearsal writes to a different file, not a flagged one
 

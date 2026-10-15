@@ -144,7 +144,7 @@ describe('a phone that drops', () => {
       phone.drop();
       const dropped = (await backbone.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
 
-      expect(dropped.state.roster).toEqual([{ id: token, name: 'Ana', connected: false }]);
+      expect(dropped.state.roster).toEqual([{ id: token, name: 'Ana', connected: false, standing: 'in', simulated: false }]);
 
       const returning = surface(port);
       await returning.ready;
@@ -153,7 +153,7 @@ describe('a phone that drops', () => {
       const back = (await backbone.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
 
       expect(ack).toEqual({ kind: 'joinAck', outcome: 'resumed', token });
-      expect(back.state.roster).toEqual([{ id: token, name: 'Ana', connected: true }]);
+      expect(back.state.roster).toEqual([{ id: token, name: 'Ana', connected: true, standing: 'in', simulated: false }]);
     });
   });
 
@@ -177,7 +177,7 @@ describe('a phone that drops', () => {
       const latecomer = surface(port);
       const state = (await latecomer.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
 
-      expect(state.state.roster).toEqual([{ id: token, name: 'Ana', connected: true }]);
+      expect(state.state.roster).toEqual([{ id: token, name: 'Ana', connected: true, standing: 'in', simulated: false }]);
     });
   });
 });
@@ -386,7 +386,14 @@ describe('one question, answered and revealed', () => {
       // be a surface choosing not to draw something: these five names are every
       // field a socket can be given while the answer is sealed, and none of
       // them is a submission — not the option, not the Player, not a count.
-      expect(Object.keys(seenByBackbone.state).sort()).toEqual(['answer', 'asked', 'phase', 'question', 'roster']);
+      expect(Object.keys(seenByBackbone.state).sort()).toEqual([
+        'answer',
+        'asked',
+        'phase',
+        'question',
+        'roster',
+        'simulation',
+      ]);
       expect(Object.keys(seenByStage.state)).not.toContain('sealed');
       expect(JSON.stringify(seenByBackbone.state)).not.toContain('correct');
       expect(seenByBackbone.state.answer).toBeNull();
@@ -485,6 +492,234 @@ describe('one question, answered and revealed', () => {
   });
 });
 
+describe('the cull over the wire', () => {
+  const ROOM = 11;
+
+  /**
+   * Fake timers, because the answer window is ten seconds of real time and no
+   * test should sit through it. `shouldAdvanceTime` keeps the socket's own I/O
+   * moving, which the real event loop would otherwise drive.
+   */
+  const withCull = async (run: (port: number) => Promise<void>) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await withServer(run);
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  const stateWhere = async (s: ReturnType<typeof surface>, ok: (state: ShownState) => boolean): Promise<ShownState> => {
+    for (;;) {
+      const message = (await s.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+      if (ok(message.state)) return message.state;
+    }
+  };
+
+  /** A phone that has joined, a Stage, a Presenter, and `size` seeded Players. */
+  async function aSeededCull(port: number, size = ROOM, started = true) {
+    const phone = surface(port);
+    const stage = surface(port);
+    const presenter = surface(port);
+    await Promise.all([phone.ready, stage.ready, presenter.ready]);
+    await Promise.all([phone.next('state'), stage.next('state'), presenter.next('state')]);
+
+    phone.send({ kind: 'join', name: 'Ana' });
+    await phone.next('joinAck');
+    await Promise.all([phone.next('state'), stage.next('state'), presenter.next('state')]);
+
+    presenter.send({ kind: 'simulatePlayers', count: size });
+    // Every seeded Player is its own event, and so its own broadcast: wait for
+    // the room to be the size asked for, not for the first name to arrive.
+    await stateWhere(stage, (state) => state.roster.length === size + 1);
+
+    if (started) {
+      presenter.send({ kind: 'startShow' });
+      await stateWhere(presenter, (state) => state.phase === 'started');
+    }
+
+    return { phone, stage, presenter };
+  }
+
+  /** Asks for a question and lets its window run out, as it would on the day. */
+  async function askAndClose(presenter: ReturnType<typeof surface>, stage: ReturnType<typeof surface>) {
+    presenter.send({ kind: 'presentQuestion' });
+    await stateWhere(stage, (state) => state.phase === 'answering');
+
+    await vi.advanceTimersByTimeAsync(showConfig.timings.answerSeconds * 1000 + 100);
+    await stateWhere(stage, (state) => state.phase === 'revealPending');
+  }
+
+  it('puts a whole simulated room on the Stage in one press', async () => {
+    await withServer(async (port) => {
+      const { stage } = await aSeededCull(port);
+
+      const seeded = await stateWhere(stage, (state) => state.roster.length === ROOM + 1);
+      expect(seeded.roster.filter((player) => player.simulated)).toHaveLength(ROOM);
+      expect(seeded.roster.find((player) => player.simulated)?.name).toBeTruthy();
+    });
+  });
+
+  it('has the seeded room answer on its own once it is armed', async () => {
+    await withCull(async (port) => {
+      const { stage, presenter } = await aSeededCull(port);
+
+      presenter.send({ kind: 'setSimulation', armed: true, mode: 'correct' });
+      await stateWhere(presenter, (state) => state.simulation.armed);
+      await askAndClose(presenter, stage);
+
+      presenter.send({ kind: 'reveal' });
+      const revealed = await stateWhere(stage, (state) => state.answer !== null);
+
+      // The question going up is one event and the seeded room answering is a
+      // dozen more — well, eleven: the real phone on this socket never submitted,
+      // and the cull does not spare anyone for not having answered.
+      expect(revealed.answer?.submissions).toHaveLength(ROOM);
+      expect(revealed.answer?.submissions.map((submission) => submission.playerId)).not.toContain(
+        (revealed.roster.find((player) => !player.simulated))?.id,
+      );
+    });
+  });
+
+  it('answers on demand, with the Presenter pressing it', async () => {
+    await withCull(async (port) => {
+      const { stage, presenter } = await aSeededCull(port, 4);
+
+      presenter.send({ kind: 'setSimulation', armed: false, mode: 'mixed' });
+      await stateWhere(presenter, (state) => state.simulation.mode === 'mixed');
+      await askAndClose(presenter, stage);
+
+      presenter.send({ kind: 'simulateAnswers' });
+      presenter.send({ kind: 'reveal' });
+      const revealed = await stateWhere(stage, (state) => state.answer !== null);
+
+      // Mixed is a third right, a third wrong, a third silent — so fewer than
+      // the five who are in the room, and at least one.
+      expect(revealed.answer?.submissions.length).toBeGreaterThan(0);
+      expect(revealed.answer?.submissions.length).toBeLessThan(5);
+    });
+  });
+
+  it('flips the whole grid at once on the Stage, which is what the drama is', async () => {
+    await withCull(async (port) => {
+      const { stage, presenter } = await aSeededCull(port);
+
+      presenter.send({ kind: 'setSimulation', armed: true, mode: 'mixed' });
+      await stateWhere(presenter, (state) => state.simulation.armed);
+      presenter.send({ kind: 'presentQuestion' });
+      const asking = await stateWhere(stage, (state) => state.phase === 'answering');
+
+      // Nothing has flipped yet, and the room cannot see who answered.
+      expect(asking.roster.every((player) => player.standing === 'in')).toBe(true);
+      expect(JSON.stringify(asking)).not.toContain('optionId');
+
+      await vi.advanceTimersByTimeAsync(showConfig.timings.answerSeconds * 1000 + 100);
+      presenter.send({ kind: 'reveal' });
+      const revealed = await stateWhere(stage, (state) => state.answer !== null);
+
+      // One event, one new state, and the whole grid has moved together.
+      expect(revealed.roster.some((player) => player.standing === 'out')).toBe(true);
+      expect(revealed.roster.some((player) => player.standing === 'in')).toBe(true);
+    });
+  });
+
+  it('keeps culling while the target is unmet, and stops when the bank runs out', async () => {
+    await withCull(async (port) => {
+      const { presenter, stage } = await aSeededCull(port);
+
+      // Everyone correct leaves twelve, which is above the target of ten, so
+      // the cull does not stop and asks for another question.
+      presenter.send({ kind: 'setSimulation', armed: true, mode: 'correct' });
+      await stateWhere(presenter, (state) => state.simulation.armed);
+
+      await askAndClose(presenter, stage);
+      presenter.send({ kind: 'reveal' });
+      const first = await stateWhere(stage, (state) => state.answer !== null);
+      expect(first.roster.filter((player) => player.standing === 'in')).toHaveLength(ROOM);
+
+      await askAndClose(presenter, stage);
+      presenter.send({ kind: 'reveal' });
+      const second = await stateWhere(stage, (state) => state.answer !== null && state.asked.length === 2);
+      expect(second.asked).toHaveLength(2);
+
+      // The bank ran out before the target was reached, and the show says so
+      // rather than asking a third time: a refusal broadcasts nothing, so the
+      // only way to see it is to make something else broadcast and check.
+      stage.drain();
+      presenter.send({ kind: 'presentQuestion' });
+      presenter.send({ kind: 'setSimulation', armed: false, mode: 'correct' });
+      const after = await stateWhere(stage, (state) => state.simulation.armed === false);
+
+      expect(after.asked).toHaveLength(2);
+      expect(after.roster.filter((player) => player.standing === 'in').length).toBeGreaterThan(
+        showConfig.cull.targetPlayers,
+      );
+    });
+  });
+
+  it('tears the seeded room down without touching a real phone', async () => {
+    await withServer(async (port) => {
+      // Before the show, which is the only time it can be torn down: once the
+      // cull is running, the roster *is* the show.
+      const { stage, presenter } = await aSeededCull(port, 4, false);
+
+      presenter.send({ kind: 'clearSimulated' });
+      const cleared = await stateWhere(stage, (state) => state.roster.length === 1);
+
+      expect(cleared.roster[0]?.simulated).toBe(false);
+      expect(cleared.roster[0]?.name).toBe('Ana');
+    });
+  });
+
+  it('keeps the rehearsal controls away from a Player phone', async () => {
+    await withServer(async (port) => {
+      // Not started: that is the only moment every control here is live. Once
+      // the show has begun, seeding and clearing are refused by the *machine*,
+      // and a test leaning on that would pass against a server with no guard.
+      const { phone, stage, presenter } = await aSeededCull(port, 3, false);
+
+      phone.drain();
+      stage.drain();
+      presenter.drain();
+      phone.send({ kind: 'simulatePlayers', count: 30 });
+      phone.send({ kind: 'clearSimulated' });
+      phone.send({ kind: 'setSimulation', armed: false, mode: 'correct' });
+
+      // Nothing a phone sent records anything, so the next broadcast is one the
+      // Presenter causes. Everything that rode along with it is what was tried.
+      presenter.send({ kind: 'setSimulation', armed: true, mode: 'wrong' });
+      const seenByStage = await stateWhere(stage, (state) => state.simulation.armed);
+
+      expect(seenByStage.roster).toHaveLength(4);
+      expect(seenByStage.simulation).toEqual({ armed: true, mode: 'wrong' });
+    });
+  });
+
+  it('stops the cull itself once ten or fewer are left', async () => {
+    await withCull(async (port) => {
+      const { stage, presenter } = await aSeededCull(port);
+
+      // Mixed leaves about a third standing, which is under the target at once.
+      presenter.send({ kind: 'setSimulation', armed: true, mode: 'mixed' });
+      await stateWhere(presenter, (state) => state.simulation.armed);
+      await askAndClose(presenter, stage);
+      presenter.send({ kind: 'reveal' });
+
+      const done = await stateWhere(stage, (state) => state.answer !== null);
+      expect(done.roster.filter((player) => player.standing === 'in').length).toBeLessThanOrEqual(10);
+      expect(done.asked).toHaveLength(1);
+
+      stage.drain();
+      presenter.send({ kind: 'presentQuestion' });
+      presenter.send({ kind: 'setSimulation', armed: false, mode: 'mixed' });
+      const after = await stateWhere(stage, (state) => state.simulation.armed === false);
+
+      expect(after.asked).toHaveLength(1);
+      expect(after.phase).toBe('revealed');
+    });
+  });
+});
+
 describe('the show at room scale', () => {
   const ROOM = 50;
 
@@ -578,7 +813,7 @@ describe('the event log on disk', () => {
       const reloaded = surface(restarted.port);
       const state = (await reloaded.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
 
-      expect(state.state.roster).toEqual([{ id: ack.token, name: 'Ana', connected: false }]);
+      expect(state.state.roster).toEqual([{ id: ack.token, name: 'Ana', connected: false, standing: 'in', simulated: false }]);
     } finally {
       await restarted.close();
     }
@@ -600,7 +835,7 @@ describe('the event log on disk', () => {
       const phone = surface(server.port);
       const state = (await phone.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
 
-      expect(state.state.roster).toEqual([{ id: 'p1', name: 'Ana', connected: false }]);
+      expect(state.state.roster).toEqual([{ id: 'p1', name: 'Ana', connected: false, standing: 'in', simulated: false }]);
     } finally {
       await server.close();
     }

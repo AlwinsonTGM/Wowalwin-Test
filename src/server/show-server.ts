@@ -6,15 +6,18 @@ import express from 'express';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 import {
   fold,
+  planClearSimulated,
   planCloseAnswerWindow,
   planJoin,
   planNextQuestion,
   planReveal,
   planResume,
+  planSimulateAnswers,
+  planSimulatePlayers,
   planSubmitAnswer,
   shown,
 } from '../game/machine.ts';
-import type { GameEvent } from '../game/events.ts';
+import type { GameEvent, SimulationMode } from '../game/events.ts';
 import type { ClientMessage, ServerMessage } from '../shared/protocol.ts';
 import { readEventLog, writeEventLog } from './event-log.ts';
 import { reachableHost } from './address.ts';
@@ -27,12 +30,24 @@ export type ShowServer = {
   close: () => Promise<void>;
 };
 
+const MODES: SimulationMode[] = ['correct', 'wrong', 'mixed'];
+
 const parse = (raw: RawData): ClientMessage | null => {
   try {
     const message = JSON.parse(String(raw)) as Record<string, unknown>;
     if (message?.kind === 'startShow') return { kind: 'startShow' };
     if (message?.kind === 'presentQuestion') return { kind: 'presentQuestion' };
     if (message?.kind === 'reveal') return { kind: 'reveal' };
+    if (message?.kind === 'clearSimulated') return { kind: 'clearSimulated' };
+    if (message?.kind === 'simulateAnswers') return { kind: 'simulateAnswers' };
+    if (message?.kind === 'simulatePlayers') {
+      return { kind: 'simulatePlayers', count: typeof message.count === 'number' ? message.count : 0 };
+    }
+    if (message?.kind === 'setSimulation') {
+      const mode = MODES.find((candidate) => candidate === message.mode);
+      if (!mode) return null;
+      return { kind: 'setSimulation', armed: message.armed === true, mode };
+    }
     if (message?.kind === 'submitAnswer') {
       return { kind: 'submitAnswer', optionId: typeof message.optionId === 'string' ? message.optionId : '' };
     }
@@ -103,6 +118,13 @@ export async function startShowServer({
     for (const client of wss.clients) if (client.readyState === client.OPEN) client.send(payload);
 
     armAnswerWindow();
+
+    // An armed rehearsal room answers the moment its question goes up, not when
+    // somebody remembers to press anything. Keyed off the question rather than
+    // off `record`, so an answer cannot cause another answer.
+    if (event.type === 'questionPresented') {
+      for (const answer of planSimulateAnswers(state, state.simulation.mode).answers) record(answer);
+    }
   };
 
   const armAnswerWindow = () => {
@@ -186,6 +208,35 @@ export async function startShowServer({
         // The acknowledgement is about this socket's own submission, so it goes
         // to this socket alone and says nothing about anybody else's.
         send(client, { kind: 'answerAck', outcome: plan.outcome });
+        return;
+      }
+
+      // The rehearsal room. Seeded, never connected — see ticket 03's Comments.
+      // Every one of these is a Presenter control on the same terms as the
+      // three above, and every rule behind them is the machine's to decide.
+      if (message.kind === 'simulatePlayers') {
+        if (!isPresenter) return;
+        const plan = planSimulatePlayers(state, message.count);
+        if (plan.outcome === 'seeded') for (const event of plan.events) record(event);
+        return;
+      }
+
+      if (message.kind === 'clearSimulated') {
+        if (!isPresenter) return;
+        const plan = planClearSimulated(state);
+        if (plan.outcome === 'cleared') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'setSimulation') {
+        if (!isPresenter) return;
+        record({ type: 'simulationSet', armed: message.armed, mode: message.mode });
+        return;
+      }
+
+      if (message.kind === 'simulateAnswers') {
+        if (!isPresenter) return;
+        for (const answer of planSimulateAnswers(state, state.simulation.mode).answers) record(answer);
         return;
       }
 

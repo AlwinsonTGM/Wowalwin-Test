@@ -41,6 +41,10 @@ function App() {
       onStartShow={show.startShow}
       onPresentQuestion={show.presentQuestion}
       onReveal={show.reveal}
+      onSimulate={show.simulate}
+      onClearSimulated={show.clearSimulated}
+      onSimulateAnswers={show.simulateAnswers}
+      onSetSimulation={show.setSimulation}
     />
   );
 }

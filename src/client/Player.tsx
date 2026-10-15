@@ -35,6 +35,10 @@ export function Player({
   const question = state.question ?? null;
   const open = state.phase === 'answering';
   const seconds = useSecondsLeft(open && question ? question.askedAt : null);
+  // A phone that was turned away still watches, and a phone whose Player is out
+  // still works. Neither is a dead screen, so both keep seeing the question.
+  const playing = me !== null && me.standing === 'in';
+  const watching = me !== null || refusal !== null;
 
   return (
     <main className="surface surface--player">
@@ -63,24 +67,34 @@ export function Player({
         </form>
       )}
 
-      {me && question && (
+      {question && watching && (
         <section className="question">
           <h2 className="prompt">{question.prompt}</h2>
-          <p className="question-timer" role="timer">
-            {copy.player.secondsLeft(seconds)}
-          </p>
+          {playing && (
+            <p className="question-timer" role="timer">
+              {copy.player.secondsLeft(seconds)}
+            </p>
+          )}
           <ul className="options">
             {question.options.map((option) => (
               <li key={option.id}>
-                <button type="button" disabled={!open} onClick={() => onSubmitAnswer(option.id)}>
-                  {option.label}
-                </button>
+                {playing ? (
+                  <button type="button" disabled={!open} onClick={() => onSubmitAnswer(option.id)}>
+                    {option.label}
+                  </button>
+                ) : (
+                  option.label
+                )}
               </li>
             ))}
           </ul>
-          <p className="answer-note">{answerNote ?? (open ? copy.player.chooseAnswer : copy.player.windowClosed)}</p>
+          <p className="answer-note">
+            {playing ? (answerNote ?? (open ? copy.player.chooseAnswer : copy.player.windowClosed)) : null}
+          </p>
         </section>
       )}
+
+      {me?.standing === 'out' && <p className="refused">{copy.player.eliminated}</p>}
 
       {me && question === null && state.phase === 'joining' && <p className="waiting">{copy.player.waitingForShow}</p>}
     </main>

@@ -30,7 +30,51 @@ export const showConfig = {
     sting: 'audio/sting.mp3',
     reveal: 'audio/reveal.mp3',
   },
+  cull: {
+    /** The cull stops here. Ten or fewer Players is the size of the bracket. */
+    targetPlayers: 10,
+    /** Warn the Presenter with this few questions left and the target unmet. */
+    queueWarning: 2,
+  },
+  /** A seeded Player's id, so one is recognisable in the event log. */
+  simulation: { idPrefix: 'sim-' },
 } as const;
+
+/**
+ * The names a seeded roster is given. They are not Players, so they must not
+ * look like Players either: these are the names a rehearsal grid is made of,
+ * and the Backbone marks every one of them as simulated.
+ */
+export const simulatedNames = [
+  'Ana',
+  'Ben',
+  'Cara',
+  'Dan',
+  'Elsa',
+  'Frank',
+  'Grace',
+  'Hector',
+  'Ivy',
+  'Jonas',
+  'Kara',
+  'Luis',
+  'Maya',
+  'Nico',
+  'Omar',
+  'Petra',
+  'Ramon',
+  'Sofia',
+  'Tina',
+  'Vic',
+] as const;
+
+/** Seeded name number `index`, counted from zero, and never the same twice
+ *  within a rehearsal even after the pool has been gone round. */
+export const simulatedName = (index: number): string => {
+  const name = simulatedNames[index % simulatedNames.length]!;
+  const cycle = Math.floor(index / simulatedNames.length);
+  return cycle === 0 ? name : `${name} ${cycle + 1}`;
+};
 
 export type QuestionOption = { id: string; label: string };
 
@@ -135,6 +179,30 @@ export const copy = {
     submitted: (count: number) => `${count} ang nagsagot`,
     submittedNone: 'Walang nagsagot.',
 
+    /** The cull's own numbers, on the Presenter's screen, at all times. */
+    survivorsHeading: 'Nakalaan',
+    survivors: (count: number) => `${count} ang nakalaan`,
+    cullComplete: 'Tapos na ang cull. Ito na ang mga napili para sa bracket.',
+    queueSpent: 'Tapos na ang mga tanong at hindi pa naabot ang target ng nakalaan.',
+    queueLow: (left: number) => `Konti na ang tanong: ${left} na lang. Maaaring hindi maabot ang target.`,
+
+    /** A rehearsal room, seeded rather than joined (ticket 03). */
+    simHeading: 'Simulated na Players',
+    simulate: (count: number) => `Magdagdag ng ${count}`,
+    clearSimulated: 'Alisin ang simulated',
+    simNone: 'Walang simulated na Player.',
+    simArm: 'Sasagot ang simulated kada tanong',
+    simStop: 'Itigil ang simulated',
+    simNow: 'Sagotan ngayon',
+    simModeHeading: 'Paano nila sasagutin',
+    simMode: {
+      correct: 'Lahat tama',
+      wrong: 'Lahat mali',
+      mixed: 'Mixture',
+    },
+    simLocked: 'Hindi na maaaring baguhan ang roster kapag nagsimula na ang show.',
+    simulatedBadge: 'Sim',
+
     /** One control for every sound in the show. */
     mute: 'Patayin ang tunog',
     unmute: 'Buksan ang tunog',
@@ -153,6 +221,8 @@ export const copy = {
     secondsLeft: (seconds: number) => `${seconds} segundo`,
     waiting: 'Hintayin…',
     answerHeading: 'Ang sagot',
+    survived: 'Nakalaan',
+    eliminated: 'Tapos na',
   },
 
   player: {
@@ -184,5 +254,7 @@ export const copy = {
       notPlaying: 'Hindi ka naka-play sa tanong na ito.',
       notAnOption: 'Hindi wasto ang piniling sagot.',
     },
+    /** Said once, on the phone that it happened to, and then it keeps working. */
+    eliminated: 'Tapos na ang laban mo. Manood ka lang.',
   },
 } as const;

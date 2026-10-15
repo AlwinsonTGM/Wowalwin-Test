@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AnswerOutcome, JoinOutcome, ShownState } from '../game/machine.ts';
 import type { Player as RosterPlayer } from '../game/machine.ts';
+import type { SimulationMode } from '../game/events.ts';
 import type { ServerMessage } from '../shared/protocol.ts';
 import { copy, showConfig } from '../content/show.ts';
 import { surfaceFor } from './surface.ts';
@@ -32,6 +33,7 @@ export function useShow() {
     asked: [],
     question: null,
     answer: null,
+    simulation: { armed: false, mode: 'mixed' },
   });
   /** undefined until the server says; null once it has said there is none. */
   const [joinHost, setJoinHost] = useState<string | null | undefined>(undefined);
@@ -119,6 +121,11 @@ export function useShow() {
     presentQuestion: () => send({ kind: 'presentQuestion' }),
     submitAnswer: (optionId: string) => send({ kind: 'submitAnswer', optionId }),
     reveal: () => send({ kind: 'reveal' }),
+    /** The rehearsal room (ticket 03). Seeded server-side, never connected. */
+    simulate: (count: number) => send({ kind: 'simulatePlayers', count }),
+    clearSimulated: () => send({ kind: 'clearSimulated' }),
+    simulateAnswers: () => send({ kind: 'simulateAnswers' }),
+    setSimulation: (armed: boolean, mode: SimulationMode) => send({ kind: 'setSimulation', armed, mode }),
     /** The show's own words for how this phone's last submission went. */
     answerNote: answerAck === null ? null : copy.player.answer[answerAck],
   };

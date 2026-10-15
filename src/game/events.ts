@@ -1,6 +1,17 @@
+/**
+ * How a seeded room behaves when the question goes up. `correct` is an easy
+ * round and `wrong` a hard one; `mixed` is a deterministic spread of all three
+ * answers — right, wrong, and no answer at all — by roster order.
+ *
+ * There is no randomness here on purpose. A generator is injected for the Kahon
+ * draw (spec), and a rehearsal that could not be replayed identically would be
+ * no use for practising timing.
+ */
+export type SimulationMode = 'correct' | 'wrong' | 'mixed';
+
 /** Everything that can happen to the show, as data. */
 export type GameEvent =
-  | { type: 'playerJoined'; playerId: string; name: string }
+  | { type: 'playerJoined'; playerId: string; name: string; simulated?: boolean }
   | { type: 'playerDisconnected'; playerId: string }
   | { type: 'playerReconnected'; playerId: string }
   | { type: 'showStarted' }
@@ -12,4 +23,8 @@ export type GameEvent =
   | { type: 'questionPresented'; questionId: string; at: number }
   | { type: 'answerSubmitted'; playerId: string; optionId: string }
   | { type: 'answerWindowClosed' }
-  | { type: 'revealTriggered' };
+  | { type: 'revealTriggered' }
+  /** Ticket 03: the seeded roster is torn down whole, and real phones are not. */
+  | { type: 'simulatedPlayersCleared' }
+  /** The Presenter's rehearsal settings, held in state so every surface agrees. */
+  | { type: 'simulationSet'; armed: boolean; mode: SimulationMode };

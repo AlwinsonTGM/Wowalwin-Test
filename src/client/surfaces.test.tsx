@@ -6,6 +6,7 @@ import { Stage } from './Stage.tsx';
 import { Player } from './Player.tsx';
 import type { ShownState, Player as RosterPlayer } from '../game/machine.ts';
 import { copy, forPresenter, questionBank, showConfig } from '../content/show.ts';
+import { questionsLeft } from '../game/machine.ts';
 
 /**
  * The Backbone is the one surface that speaks, and these tests are about what
@@ -35,6 +36,7 @@ const aShow = (roster: RosterPlayer[] = [], phase: ShownState['phase'] = 'joinin
   asked: [],
   question: null,
   answer: null,
+  simulation: { armed: false, mode: 'mixed' },
 });
 
 /** One question on screen, exactly as the machine would publish it. */
@@ -63,19 +65,19 @@ const revealed = (): ShownState => ({
   },
 });
 
-const ana: RosterPlayer = { id: 'p1', name: 'Ana', connected: true };
-const ben: RosterPlayer = { id: 'p2', name: 'Ben', connected: false };
+const ana: RosterPlayer = { id: 'p1', name: 'Ana', connected: true, standing: 'in', simulated: false };
+const ben: RosterPlayer = { id: 'p2', name: 'Ben', connected: false, standing: 'in', simulated: false };
 
 describe('the Backbone', () => {
   it('shows every Player who has joined', () => {
-    render(<Backbone state={aShow([ana, ben])} joinUrl={JOIN_URL} connection="online" onStartShow={() => {}} onPresentQuestion={() => {}} onReveal={() => {}} />);
+    render(<Backbone state={aShow([ana, ben])} joinUrl={JOIN_URL} connection="online" onStartShow={() => {}} onPresentQuestion={() => {}} onReveal={() => {}} onSimulate={() => {}} onClearSimulated={() => {}} onSimulateAnswers={() => {}} onSetSimulation={() => {}} />);
 
     expect(screen.getByText('Ana')).toBeTruthy();
     expect(screen.getByText('Ben')).toBeTruthy();
   });
 
   it('shows who is still connected, so a dropped phone is visible', () => {
-    render(<Backbone state={aShow([ana, ben])} joinUrl={JOIN_URL} connection="online" onStartShow={() => {}} onPresentQuestion={() => {}} onReveal={() => {}} />);
+    render(<Backbone state={aShow([ana, ben])} joinUrl={JOIN_URL} connection="online" onStartShow={() => {}} onPresentQuestion={() => {}} onReveal={() => {}} onSimulate={() => {}} onClearSimulated={() => {}} onSimulateAnswers={() => {}} onSetSimulation={() => {}} />);
 
     expect(screen.getAllByLabelText(copy.backbone.connection.online)).toHaveLength(1);
     expect(screen.getAllByLabelText(copy.backbone.connection.offline)).toHaveLength(1);
@@ -84,12 +86,21 @@ describe('the Backbone', () => {
   it('says how full the roster is against the cap', () => {
     render(
       <Backbone
-        state={aShow(Array.from({ length: showConfig.playerCap }, (_, i) => ({ id: `p${i}`, name: `P${i}`, connected: true })))}
+        state={aShow(
+          Array.from(
+            { length: showConfig.playerCap },
+            (_, i) => ({ id: `p${i}`, name: `P${i}`, connected: true, standing: 'in', simulated: false }),
+          ),
+        )}
         joinUrl={JOIN_URL}
         connection="online"
         onStartShow={() => {}}
         onPresentQuestion={() => {}}
         onReveal={() => {}}
+        onSimulate={() => {}}
+        onClearSimulated={() => {}}
+        onSimulateAnswers={() => {}}
+        onSetSimulation={() => {}}
       />,
     );
 
@@ -98,7 +109,7 @@ describe('the Backbone', () => {
   });
 
   it('says when nobody has joined yet', () => {
-    render(<Backbone state={aShow()} joinUrl={JOIN_URL} connection="online" onStartShow={() => {}} onPresentQuestion={() => {}} onReveal={() => {}} />);
+    render(<Backbone state={aShow()} joinUrl={JOIN_URL} connection="online" onStartShow={() => {}} onPresentQuestion={() => {}} onReveal={() => {}} onSimulate={() => {}} onClearSimulated={() => {}} onSimulateAnswers={() => {}} onSetSimulation={() => {}} />);
 
     expect(screen.getByText(copy.backbone.rosterEmpty)).toBeTruthy();
   });
@@ -106,39 +117,39 @@ describe('the Backbone', () => {
   it('starts the show when the Presenter says so, and only then', () => {
     const onStartShow = vi.fn();
     const { rerender } = render(
-      <Backbone state={aShow([ana])} joinUrl={JOIN_URL} connection="online" onStartShow={onStartShow} onPresentQuestion={() => {}} onReveal={() => {}} />,
+      <Backbone state={aShow([ana])} joinUrl={JOIN_URL} connection="online" onStartShow={onStartShow} onPresentQuestion={() => {}} onReveal={() => {}} onSimulate={() => {}} onClearSimulated={() => {}} onSimulateAnswers={() => {}} onSetSimulation={() => {}} />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: copy.backbone.startShow }));
     expect(onStartShow).toHaveBeenCalledTimes(1);
 
-    rerender(<Backbone state={aShow([ana], 'started')} joinUrl={JOIN_URL} connection="online" onStartShow={onStartShow} onPresentQuestion={() => {}} onReveal={() => {}} />);
+    rerender(<Backbone state={aShow([ana], 'started')} joinUrl={JOIN_URL} connection="online" onStartShow={onStartShow} onPresentQuestion={() => {}} onReveal={() => {}} onSimulate={() => {}} onClearSimulated={() => {}} onSimulateAnswers={() => {}} onSetSimulation={() => {}} />);
     expect(screen.queryByRole('button', { name: copy.backbone.startShow })).toBeNull();
     expect(screen.getByText(copy.backbone.showStarted)).toBeTruthy();
   });
 
   it('tells the Presenter where a phone should go, and that the firewall may need opening', () => {
-    render(<Backbone state={aShow([ana])} joinUrl={JOIN_URL} connection="online" onStartShow={() => {}} onPresentQuestion={() => {}} onReveal={() => {}} />);
+    render(<Backbone state={aShow([ana])} joinUrl={JOIN_URL} connection="online" onStartShow={() => {}} onPresentQuestion={() => {}} onReveal={() => {}} onSimulate={() => {}} onClearSimulated={() => {}} onSimulateAnswers={() => {}} onSetSimulation={() => {}} />);
 
     expect(screen.getByText(JOIN_URL)).toBeTruthy();
     expect(screen.getByText(copy.common.firewallNote)).toBeTruthy();
   });
 
   it('says so plainly when no address could be found', () => {
-    render(<Backbone state={aShow([ana])} joinUrl={null} connection="online" onStartShow={() => {}} onPresentQuestion={() => {}} onReveal={() => {}} />);
+    render(<Backbone state={aShow([ana])} joinUrl={null} connection="online" onStartShow={() => {}} onPresentQuestion={() => {}} onReveal={() => {}} onSimulate={() => {}} onClearSimulated={() => {}} onSimulateAnswers={() => {}} onSetSimulation={() => {}} />);
 
     expect(screen.getByText(copy.common.noAddress)).toBeTruthy();
   });
 
   it('says plainly when it has lost the server', () => {
-    render(<Backbone state={aShow([ana])} joinUrl={JOIN_URL} connection="offline" onStartShow={() => {}} onPresentQuestion={() => {}} onReveal={() => {}} />);
+    render(<Backbone state={aShow([ana])} joinUrl={JOIN_URL} connection="offline" onStartShow={() => {}} onPresentQuestion={() => {}} onReveal={() => {}} onSimulate={() => {}} onClearSimulated={() => {}} onSimulateAnswers={() => {}} onSetSimulation={() => {}} />);
 
     expect(screen.getByText(copy.backbone.status.offline)).toBeTruthy();
   });
 
   it('offers no control it cannot deliver while the server is gone', () => {
     const onStartShow = vi.fn();
-    render(<Backbone state={aShow([ana])} joinUrl={JOIN_URL} connection="offline" onStartShow={onStartShow} onPresentQuestion={() => {}} onReveal={() => {}} />);
+    render(<Backbone state={aShow([ana])} joinUrl={JOIN_URL} connection="offline" onStartShow={onStartShow} onPresentQuestion={() => {}} onReveal={() => {}} onSimulate={() => {}} onClearSimulated={() => {}} onSimulateAnswers={() => {}} onSetSimulation={() => {}} />);
 
     // A click here would reach a closed socket and vanish silently, which reads
     // to a Presenter as a broken button rather than a broken connection.
@@ -219,17 +230,66 @@ describe('the Stage', () => {
     expect(screen.queryByText(copy.backbone.cueHeading)).toBeNull();
     expect(screen.queryByText(copy.backbone.answerHeading)).toBeNull();
   });
+
+  it('shows the whole grid beside the question, because that is the show', () => {
+    render(<Stage state={asking({ roster: [ana, ben] })} joinUrl={JOIN_URL} />);
+
+    expect(screen.getByText(theQuestion.prompt)).toBeTruthy();
+    expect(screen.getByText('Ana')).toBeTruthy();
+    expect(screen.getByText('Ben')).toBeTruthy();
+  });
+
+  it('marks nobody before the reveal, so the room cannot guess who answered', () => {
+    render(<Stage state={asking({ roster: [ana, ben] })} joinUrl={JOIN_URL} />);
+
+    expect(screen.queryByText(copy.stage.survived)).toBeNull();
+    expect(screen.queryByText(copy.stage.eliminated)).toBeNull();
+  });
+
+  it('flips every name at once, and says which way each one went', () => {
+    const roster = [
+      { ...ana, standing: 'in' as const },
+      { ...ben, standing: 'out' as const },
+    ];
+    render(<Stage state={asking({ roster, phase: 'revealed' })} joinUrl={JOIN_URL} />);
+
+    expect(screen.getByText(copy.stage.survived)).toBeTruthy();
+    expect(screen.getByText(copy.stage.eliminated)).toBeTruthy();
+  });
+
+  it('tells the two standings apart in the markup, not only in colour', () => {
+    const roster = [
+      { ...ana, standing: 'in' as const },
+      { ...ben, standing: 'out' as const },
+    ];
+    const { container } = render(<Stage state={asking({ roster, phase: 'revealed' })} joinUrl={JOIN_URL} />);
+
+    // A projector in a bright room with a colour-blind audience: the words are
+    // what carry it, and the class is what a screenshot of the grid will show.
+    const inName = screen.getByText('Ana').closest('li')!;
+    const outName = screen.getByText('Ben').closest('li')!;
+
+    expect(inName.className).toContain('is-in');
+    expect(outName.className).toContain('is-out');
+    expect(container.querySelectorAll('.names li')).toHaveLength(2);
+  });
 });
 
 describe('the Backbone during a question', () => {
+  const noop = () => {};
+
   const backbone = (state: ShownState, over: Partial<Parameters<typeof Backbone>[0]> = {}) => (
     <Backbone
       state={state}
       joinUrl={JOIN_URL}
       connection="online"
-      onStartShow={() => {}}
-      onPresentQuestion={() => {}}
-      onReveal={() => {}}
+      onStartShow={noop}
+      onPresentQuestion={noop}
+      onReveal={noop}
+      onSimulate={noop}
+      onClearSimulated={noop}
+      onSimulateAnswers={noop}
+      onSetSimulation={noop}
       {...over}
     />
   );
@@ -302,6 +362,163 @@ describe('the Backbone during a question', () => {
 
     expect(screen.getByRole('button', { name: copy.backbone.unmute })).toBeTruthy();
     expect(screen.getByText(copy.backbone.muted)).toBeTruthy();
+  });
+});
+
+describe('the cull on the Backbone', () => {
+  const noop = () => {};
+
+  const backbone = (state: ShownState, over: Partial<Parameters<typeof Backbone>[0]> = {}) => (
+    <Backbone
+      state={state}
+      joinUrl={JOIN_URL}
+      connection="online"
+      onStartShow={noop}
+      onPresentQuestion={noop}
+      onReveal={noop}
+      onSimulate={noop}
+      onClearSimulated={noop}
+      onSimulateAnswers={noop}
+      onSetSimulation={noop}
+      {...over}
+    />
+  );
+
+  /** Twelve Players after a reveal, of whom `alive` are still in. */
+  const cull = (alive: number, over: Partial<ShownState> = {}): ShownState => ({
+    ...aShow(
+      Array.from({ length: 12 }, (_, i) => ({
+        id: `p${i}`,
+        name: `Player ${i}`,
+        connected: true,
+        standing: i < alive ? ('in' as const) : ('out' as const),
+        simulated: false,
+      })),
+      'revealed',
+    ),
+    asked: [theQuestion.id],
+    question: {
+      id: theQuestion.id,
+      prompt: theQuestion.prompt,
+      options: theQuestion.options.map(({ id, label }) => ({ id, label })),
+      askedAt: Date.now(),
+    },
+    answer: {
+      questionId: theQuestion.id,
+      optionId: theQuestion.correctOptionId,
+      optionLabel: theQuestion.options.find((option) => option.id === theQuestion.correctOptionId)!.label,
+      submissions: [],
+    },
+    ...over,
+  });
+
+  it('shows the survivor count at all times, even before anything has been asked', () => {
+    render(backbone(aShow([ana, ben], 'started')));
+
+    expect(screen.getByText(copy.backbone.survivors(2))).toBeTruthy();
+  });
+
+  it('counts only the Players still in', () => {
+    render(backbone(cull(8)));
+
+    expect(screen.getByText(copy.backbone.survivors(8))).toBeTruthy();
+    expect(screen.queryByText(copy.backbone.survivors(12))).toBeNull();
+  });
+
+  it('says the cull is over once the target is met, and offers no further question', () => {
+    render(backbone(cull(showConfig.cull.targetPlayers)));
+
+    expect(screen.getByText(copy.backbone.cullComplete)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: copy.backbone.presentQuestion })).toBeNull();
+  });
+
+  it('offers another question while the target is still unmet', () => {
+    render(backbone(cull(showConfig.cull.targetPlayers + 1)));
+
+    expect(screen.queryByText(copy.backbone.cullComplete)).toBeNull();
+    expect(screen.getByRole('button', { name: copy.backbone.presentQuestion })).toBeTruthy();
+  });
+
+  it('warns the Presenter when the bank is nearly gone and the target is unmet', () => {
+    // One question left in the bank, eleven still in the room.
+    render(backbone(cull(11)));
+
+    expect(screen.getByText(copy.backbone.queueLow(questionsLeft(cull(11))))).toBeTruthy();
+  });
+
+  it('says nothing about the queue once the target is met', () => {
+    render(backbone(cull(showConfig.cull.targetPlayers)));
+
+    expect(screen.queryByText(copy.backbone.queueLow(1))).toBeNull();
+    expect(screen.queryByText(copy.backbone.queueSpent)).toBeNull();
+  });
+
+  it('marks who is simulated, so a rehearsal is never mistaken for a room', () => {
+    const roster = [
+      { ...ana, simulated: true },
+      { ...ben, id: 'sim-1', name: 'Cara', simulated: true },
+    ];
+    render(backbone(aShow(roster)));
+
+    expect(screen.getAllByText(copy.backbone.simulatedBadge)).toHaveLength(2);
+  });
+
+  it('will seed a room on demand, and say how many are there', () => {
+    const onSimulate = vi.fn();
+    render(backbone(aShow(), { onSimulate }));
+
+    fireEvent.click(screen.getByRole('button', { name: copy.backbone.simulate(11) }));
+
+    expect(onSimulate).toHaveBeenCalledWith(11);
+  });
+
+  it('will tear the seeded room down', () => {
+    const onClearSimulated = vi.fn();
+    render(backbone(aShow(), { onClearSimulated }));
+
+    fireEvent.click(screen.getByRole('button', { name: copy.backbone.clearSimulated }));
+
+    expect(onClearSimulated).toHaveBeenCalledTimes(1);
+  });
+
+  it('will not offer to change a roster once the show has begun', () => {
+    render(backbone(aShow([ana], 'started')));
+
+    expect((screen.getByRole('button', { name: copy.backbone.simulate(11) }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: copy.backbone.clearSimulated }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(screen.getByText(copy.backbone.simLocked)).toBeTruthy();
+  });
+
+  it('arms the seeded room to answer every question, and disarms it again', () => {
+    const onSetSimulation = vi.fn();
+    const armed = cull(11, { simulation: { armed: true, mode: 'mixed' } });
+    render(backbone(armed, { onSetSimulation }));
+
+    fireEvent.click(screen.getByRole('button', { name: copy.backbone.simStop }));
+
+    expect(onSetSimulation).toHaveBeenCalledWith(false, 'mixed');
+  });
+
+  it('lets the Presenter choose how the seeded room answers', () => {
+    const onSetSimulation = vi.fn();
+    render(backbone(cull(11), { onSetSimulation }));
+
+    fireEvent.click(screen.getByRole('button', { name: copy.backbone.simMode.wrong }));
+
+    expect(onSetSimulation).toHaveBeenCalledWith(false, 'wrong');
+  });
+
+  it('offers to answer now only while a question is open', () => {
+    const onSimulateAnswers = vi.fn();
+    render(backbone(cull(11), { onSimulateAnswers }));
+    expect((screen.getByRole('button', { name: copy.backbone.simNow }) as HTMLButtonElement).disabled).toBe(true);
+
+    render(backbone(asking(), { onSimulateAnswers }));
+    expect((screen.getAllByRole('button', { name: copy.backbone.simNow })[1] as HTMLButtonElement).disabled).toBe(
+      false,
+    );
   });
 });
 
@@ -415,5 +632,32 @@ describe('the Player phone', () => {
     render(phone({ state: asking(), me: null }));
 
     expect(screen.queryByText(theQuestion.prompt)).toBeNull();
+  });
+
+  it('tells a phone that joined late that it is out, and keeps showing the show', () => {
+    render(
+      phone({
+        state: asking(),
+        me: null,
+        refusal: copy.player.refused.showStarted,
+      }),
+    );
+
+    // Told plainly...
+    expect(screen.getByText(copy.player.refused.showStarted)).toBeTruthy();
+    // ...and still a working screen: the question is on it, to watch.
+    expect(screen.getByText(theQuestion.prompt)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: theQuestion.options[0]!.label })).toBeNull();
+  });
+
+  it('tells an eliminated Player they are out, once, and keeps the phone usable', () => {
+    const out: RosterPlayer = { ...ana, standing: 'out' };
+    render(phone({ state: asking(), me: out }));
+
+    expect(screen.getByText(copy.player.eliminated)).toBeTruthy();
+    // Usable: the question is still there to read, and nothing is pressable.
+    expect(screen.getByText(theQuestion.prompt)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: theQuestion.options[0]!.label })).toBeNull();
+    expect(screen.getByText(copy.player.joined('Ana'))).toBeTruthy();
   });
 });

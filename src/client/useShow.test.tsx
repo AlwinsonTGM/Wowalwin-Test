@@ -56,7 +56,17 @@ function Phone() {
   );
 }
 
-const joinState = { kind: 'state', state: { phase: 'joining', roster: [{ id: 'p1', name: 'Ana', connected: true }] } };
+const joinState = {
+  kind: 'state',
+  state: {
+    phase: 'joining',
+    roster: [{ id: 'p1', name: 'Ana', connected: true, standing: 'in', simulated: false }],
+    asked: [],
+    question: null,
+    answer: null,
+    simulation: { armed: false, mode: 'mixed' },
+  },
+};
 
 beforeEach(() => {
   FakeSocket.opened = [];
@@ -179,10 +189,11 @@ describe('the answer window over the socket', () => {
         kind: 'state',
         state: {
           phase: 'answering',
-          roster: [{ id: 'p1', name: 'Ana', connected: true }],
+          roster: [{ id: 'p1', name: 'Ana', connected: true, standing: 'in', simulated: false }],
           asked: ['q1'],
           question: { id: 'q1', prompt: 'Bakit?', options: [{ id: 'a', label: 'Hindi' }], askedAt: 0 },
           answer: null,
+          simulation: { armed: false, mode: 'mixed' },
         },
       }),
     );
