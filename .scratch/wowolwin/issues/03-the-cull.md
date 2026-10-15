@@ -6,7 +6,7 @@ This ticket also introduces simulated Players and simulated answers, so the Cull
 
 **Blocked by:** 02 — Answer one question, then reveal it.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Players can be added to the roster in bulk and can be made to submit answers on a timer or on demand, so the Cull grid can be driven visually without real phones
 - [x] The simulated roster is controllable from the Backbone and can be torn down cleanly
@@ -18,7 +18,7 @@ This ticket also introduces simulated Players and simulated answers, so the Cull
 - [x] The Backbone warns when the Cull queue is close to exhausted before the target count has been reached
 - [x] A Player who joins after the cull has begun is told plainly that they cannot play, and their phone still works as a spectator
 - [x] An eliminated Player's phone says they are out and remains usable rather than freezing on a dead screen
-- [ ] The full tournament to a single Finalist terminates in exactly one survivor across every combination of resolution paths
+- [x] The full tournament to a single Finalist terminates in exactly one survivor across every combination of resolution paths
 
 ## Comments
 

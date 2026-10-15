@@ -8,7 +8,7 @@ hand at 50 concurrent clients.
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] An address that is provably unreachable by a phone (link-local `169.254/16`, CGNAT
       `100.64/10`) is never offered as the join address

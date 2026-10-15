@@ -6,7 +6,7 @@ State is held as a foldable event log from the start, so a reload of the Backbon
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The WebSocket server accepts connections on all interfaces, not loopback only, and the reachable address is displayed on the Stage so the presenters never have to guess it
 - [ ] A Player who opens the join URL from a phone on the hotspot reaches the Player page
