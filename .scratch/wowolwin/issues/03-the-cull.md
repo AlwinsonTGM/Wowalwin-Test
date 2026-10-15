@@ -92,6 +92,38 @@ seeding is useless without them:
 3. An `npm run rehearse` script. One word, and the Presenter cannot be in the wrong
    mode by accident.
 
+**And two details that are easy to get wrong, both found by review before the build.**
+
+*`--fresh` must never be able to reach the real log.* `index.ts` wipes at line 9,
+before it would pick a path at line 11, so `npm run rehearse --fresh` would silently
+delete `data/event-log.json` — the actual show's roster. That is the precise opposite
+of what this ruling is for, and it is easy to miss because the existing line already
+looks correct.
+
+Close it twice, because the two fixes fail differently:
+
+- **Do the reorder anyway.** Resolve the path first, then wipe what was resolved, so
+  the wipe and the run can never disagree even if a fourth command appears later.
+- **But make the dangerous combination inexpressible.** `npm run rehearse` always
+  passes `--fresh`, so `rehearse --fresh` is not a thing anyone can type. A rehearsal
+  that always starts clean is also what a rehearsal wants — nobody wants yesterday's
+  Cull waiting on the grid.
+
+That leaves exactly three commands, each with one unambiguous target:
+
+| Command | Log | Wiped? |
+| --- | --- | --- |
+| `npm start` | real | yes |
+| `npm run rehearse` | rehearsal | yes |
+| `npm run resume` | real | no |
+
+A rehearsal can be resumed *within itself* by re-running `rehearse`; it just never
+starts by inheriting anything. Note what this does **not** change: `resume` still
+cannot reach the rehearsal file, so the failure the ruling exists to prevent remains
+prevented by the filesystem rather than by anyone remembering a command.
+
+`data/` is already gitignored, so the new log needs no ignore-rule change.
+
 **The grey dots are not a bug. Leave the count alone.** Seeded players show as
 disconnected because no socket holds them, and they will always — that is inherent to
 seeding, not a defect. Counting dropped players against the cap is deliberate
