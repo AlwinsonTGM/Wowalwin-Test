@@ -11,6 +11,8 @@
     "start": "npm run build && tsx src/server/index.ts --fresh",
     "rehearse": "npm run build && tsx src/server/index.ts --rehearse --fresh",
     "resume": "tsx src/server/index.ts",
+    "mcp": "tsx src/server/mcp.ts",
+    "mcp:tunnel": "concurrently -n mcp,tunnel \"npm run mcp\" \"npx cloudflared tunnel --url http://localhost:3333\"",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
