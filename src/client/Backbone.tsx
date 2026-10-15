@@ -57,7 +57,7 @@ export function Backbone({
         {state.phase === 'started' ? (
           <p className="started">{copy.backbone.showStarted}</p>
         ) : (
-          <button type="button" className="start" onClick={onStartShow}>
+          <button type="button" className="start" onClick={onStartShow} disabled={connection !== 'online'}>
             {copy.backbone.startShow}
           </button>
         )}

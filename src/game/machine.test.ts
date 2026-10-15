@@ -89,10 +89,12 @@ describe('a phone that drops', () => {
   });
 
   it('resumes a Player the show already knows, whatever name the phone now sends', () => {
-    const { outcome, event } = planResume(fold([aPlayer('p1', 'Ana')]), 'p1');
+    const plan = planResume(fold([aPlayer('p1', 'Ana')]), 'p1');
 
-    expect(outcome).toBe('resumed');
-    expect(event).toEqual({ type: 'playerReconnected', playerId: 'p1' });
+    expect(plan).toEqual({
+      outcome: 'resumed',
+      event: { type: 'playerReconnected', playerId: 'p1' },
+    });
   });
 
   it('does not pretend to know a Player it has never seen', () => {

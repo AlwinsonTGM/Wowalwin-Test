@@ -66,8 +66,14 @@ export function planJoin(state: GameState, player: { id: string; name: string })
   return { outcome: 'joined', event: { type: 'playerJoined', playerId: player.id, name } };
 }
 
-/** A Player holding a token the show already knows comes back. */
-export function planResume(state: GameState, playerId: string): Plan {
+/** A Player holding a token the show already knows comes back. The event that
+ *  reconnects them is the machine's to decide, so its type carries it: a server
+ *  cannot restate the rule and get it wrong on a later ticket. */
+export type ResumePlan =
+  | { outcome: 'resumed'; event: Extract<GameEvent, { type: 'playerReconnected' }> }
+  | { outcome: 'unknownPlayer' };
+
+export function planResume(state: GameState, playerId: string): ResumePlan {
   if (!state.roster.some((p) => p.id === playerId)) return { outcome: 'unknownPlayer' };
 
   return { outcome: 'resumed', event: { type: 'playerReconnected', playerId } };

@@ -16,3 +16,4 @@ Simulated Players arrived back in ticket 03, where they were needed to test the 
 - [ ] A reload or an unexpected error during a show does not end it or lose the roster
 - [ ] A single Player's phone failing mid-show does not block the round for everyone else
 - [ ] The whole show starts from one command, so setup on the day is a single step rather than a checklist
+- [ ] The join link on the Stage is also shown as a scannable code, so forty phones do not type an address off a projector

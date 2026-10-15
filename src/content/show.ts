@@ -21,6 +21,7 @@ export const copy = {
   common: {
     noAddress: 'Walang mahanap na address. Buksan ang hotspot saka i-restart.',
     firewallNote: 'Kung hindi makakapasok ang phone, i-check ang Windows Firewall para sa private network.',
+    logUnreadable: (path: string) => `Hindi mabasa ang event log sa ${path}. Nawala ang dating roster.`,
   },
 
   backbone: {

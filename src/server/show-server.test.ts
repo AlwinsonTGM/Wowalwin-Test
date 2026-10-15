@@ -1,12 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { startShowServer } from './show-server.ts';
+import { writeEventLog } from './event-log.ts';
 import { reachableHost } from './address.ts';
 import type { ServerMessage, ClientMessage } from '../shared/protocol.ts';
-import { showConfig } from '../content/show.ts';
+import { copy, showConfig } from '../content/show.ts';
 
 const aTempLog = () => join(mkdtempSync(join(tmpdir(), 'wowolwin-')), 'event-log.json');
 
@@ -196,6 +197,25 @@ describe('starting the show', () => {
       expect(started.state.phase).toBe('started');
     });
   });
+
+  it('cannot be started from a Player phone', async () => {
+    await withServer(async (port) => {
+      const phone = surface(port);
+      await phone.ready;
+      await phone.next('state');
+      phone.send({ kind: 'join', name: 'Ana' });
+      await phone.next('joinAck');
+      await phone.next('state');
+
+      phone.send({ kind: 'startShow' });
+
+      const watcher = surface(port);
+      await watcher.ready;
+      const after = (await watcher.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+
+      expect(after.state.phase).toBe('joining');
+    });
+  });
 });
 
 describe('the event log on disk', () => {
@@ -218,6 +238,47 @@ describe('the event log on disk', () => {
       expect(state.state.roster).toEqual([{ id: ack.token, name: 'Ana', connected: false }]);
     } finally {
       await restarted.close();
+    }
+  });
+
+  it('starts from the last whole log, not from a scratch file a crash left behind', async () => {
+    const logPath = aTempLog();
+    writeEventLog(logPath, [{ type: 'playerJoined', playerId: 'p1', name: 'Ana' }]);
+
+    // A crash between writing the scratch file and renaming it leaves the real
+    // log whole, which is the point of the rename: before it, the crash
+    // truncated the log itself and the next server began with no roster and no
+    // reason why. This guards the leftover, not the rename — that guarantee is
+    // the filesystem's, and nothing here can fail it.
+    writeFileSync(`${logPath}.tmp`, '[{"type":"playerJoined","playerI');
+
+    const server = await startShowServer({ port: 0, logPath });
+    try {
+      const phone = surface(server.port);
+      const state = (await phone.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+
+      expect(state.state.roster).toEqual([{ id: 'p1', name: 'Ana', connected: false }]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('starts empty and says so out loud when the log cannot be read', async () => {
+    const logPath = aTempLog();
+    writeFileSync(logPath, '{not json');
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const server = await startShowServer({ port: 0, logPath });
+    try {
+      const phone = surface(server.port);
+      const state = (await phone.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+
+      expect(state.state.roster).toEqual([]);
+      // Silence here is how a lost roster becomes a mystery instead of a fact.
+      expect(warned).toHaveBeenCalledWith(copy.common.logUnreadable(logPath), expect.anything());
+    } finally {
+      warned.mockRestore();
+      await server.close();
     }
   });
 });

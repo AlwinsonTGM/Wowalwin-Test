@@ -134,6 +134,13 @@ h1 {
   cursor: pointer;
 }
 
+/* A control that cannot be delivered says so, rather than sitting there
+   looking pressable and swallowing the Presenter's tap. */
+.start:disabled {
+  background: var(--muted);
+  cursor: not-allowed;
+}
+
 .started {
   font-size: 1.1rem;
   font-weight: 600;

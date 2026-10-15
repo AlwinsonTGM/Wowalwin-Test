@@ -86,6 +86,19 @@ describe('the Backbone', () => {
 
     expect(screen.getByText(copy.backbone.status.offline)).toBeTruthy();
   });
+
+  it('offers no control it cannot deliver while the server is gone', () => {
+    const onStartShow = vi.fn();
+    render(<Backbone state={aShow([ana])} joinUrl={JOIN_URL} connection="offline" onStartShow={onStartShow} />);
+
+    // A click here would reach a closed socket and vanish silently, which reads
+    // to a Presenter as a broken button rather than a broken connection.
+    const button = screen.getByRole('button', { name: copy.backbone.startShow }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+
+    fireEvent.click(button);
+    expect(onStartShow).not.toHaveBeenCalled();
+  });
 });
 
 describe('the Stage', () => {

@@ -9,7 +9,7 @@ import type { GameEvent } from '../game/events.ts';
 import type { ClientMessage, ServerMessage } from '../shared/protocol.ts';
 import { readEventLog, writeEventLog } from './event-log.ts';
 import { reachableHost } from './address.ts';
-import { DEFAULT_LOG_PATH } from './config.ts';
+import { CLIENT_DIR, DEFAULT_LOG_PATH } from './config.ts';
 
 export type ShowServer = {
   port: number;
@@ -54,10 +54,9 @@ export async function startShowServer({
   }
 
   const app = express();
-  const clientDir = resolve('dist');
-  if (existsSync(clientDir)) {
-    app.use(express.static(clientDir));
-    app.use((_req, res) => res.sendFile(resolve(clientDir, 'index.html')));
+  if (existsSync(CLIENT_DIR)) {
+    app.use(express.static(CLIENT_DIR));
+    app.use((_req, res) => res.sendFile(resolve(CLIENT_DIR, 'index.html')));
   }
 
   const http = createServer(app);
@@ -83,6 +82,11 @@ export async function startShowServer({
   // socket closing counts them as gone.
   const openSockets = new Map<string, number>();
 
+  // The hotspot cannot change mid-show, so this is read once: forty phones
+  // joining should not mean forty walks of every network adapter, and the Stage
+  // and the console must not be able to disagree about the address.
+  const joinHost = reachableHost();
+
   wss.on('connection', (client) => {
     let playerId: string | undefined;
 
@@ -91,7 +95,7 @@ export async function startShowServer({
       playerId = id;
     };
 
-    send(client, { kind: 'serverInfo', joinHost: reachableHost() });
+    send(client, { kind: 'serverInfo', joinHost });
     send(client, { kind: 'state', state });
 
     client.on('message', (raw) => {
@@ -99,15 +103,20 @@ export async function startShowServer({
       if (!message) return;
 
       if (message.kind === 'startShow') {
-        if (state.phase === 'joining') record({ type: 'showStarted' });
+        // A Player phone has no business starting the show, so a socket that
+        // has claimed a roster place never can. There is no Presenter identity
+        // on a connection at all (ADR-0004); this is the part of that we can
+        // hold honestly.
+        if (playerId === undefined && state.phase === 'joining') record({ type: 'showStarted' });
         return;
       }
 
       const known = message.token;
-      if (known && planResume(state, known).outcome === 'resumed') {
-        claim(known);
-        record({ type: 'playerReconnected', playerId: known });
-        send(client, { kind: 'joinAck', outcome: 'resumed', token: known });
+      const resume = known ? planResume(state, known) : null;
+      if (resume?.outcome === 'resumed') {
+        claim(resume.event.playerId);
+        record(resume.event);
+        send(client, { kind: 'joinAck', outcome: 'resumed', token: resume.event.playerId });
         return;
       }
 
@@ -135,7 +144,6 @@ export async function startShowServer({
     });
   });
 
-  const joinHost = reachableHost();
   await new Promise<void>((ready) => http.listen(port, '0.0.0.0', ready));
 
   return {

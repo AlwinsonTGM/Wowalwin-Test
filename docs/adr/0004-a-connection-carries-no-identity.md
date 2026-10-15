@@ -1,0 +1,9 @@
+# A connection carries no identity, so "Presenter" is an intention rather than a check
+
+There is no login, no role, and no token on a WebSocket connection (ADR-0002). Any phone on the hotspot that reaches `/ws` is, to the server, indistinguishable from the Backbone. `startShow` is therefore accepted from any connected socket, and a Player phone that sent `{"kind":"startShow"}` by hand would close the join window for the whole room.
+
+The rejected option is a Presenter token: the server generates one at startup, prints it, and hands it to the Backbone, which attaches it to `startShow`. It was rejected because it does not buy what it appears to buy. The Backbone's browser fetches the token from the same open HTTP server that serves the Player page, so a phone can read the token as easily as the Presenter can — it raises the effort from "open a console and type JSON" to "open a console, type JSON, and fetch a URL", while adding a protocol change, a route, and a place for the token to leak. Real identity here would need something the phone does not have, which for a classroom presentation means a physical act by the Presenter rather than a secret.
+
+What is enforced instead: a socket that has claimed a place on the roster can never start the show. That is a real invariant, it costs nothing, and it closes the specific case where a Player's own phone does it. A socket that has joined nothing is still treated as the Presenter's.
+
+This is accepted deliberately, for a room of classmates playing a ten-minute segment with no adversary. The cost if it is ever wrong is a show that starts thirty seconds early, which is recoverable by restarting; the cost of the token is permanent complexity in the protocol. Revisit if the show ever leaves a classroom.

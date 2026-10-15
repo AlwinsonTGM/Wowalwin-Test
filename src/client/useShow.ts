@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GameState, JoinOutcome, Player as RosterPlayer } from '../game/machine.ts';
 import type { ServerMessage } from '../shared/protocol.ts';
 import { copy, showConfig } from '../content/show.ts';
+import { surfaceFor } from './surface.ts';
 
 export type Connection = 'connecting' | 'online' | 'offline';
 
@@ -11,7 +12,7 @@ const TOKEN_KEY = 'wowolwin.player-token';
 // Only the Player phone holds a token. The Backbone and the Stage sit on the
 // presenter's own laptop, so a token left in that browser would claim a Player
 // who is not in the room.
-const isPlayerPhone = () => location.pathname === showConfig.playerPath;
+const isPlayerPhone = () => surfaceFor(location.pathname) === 'player';
 
 const complaintFor = (outcome: JoinOutcome): string | null => {
   if (outcome === 'nameRequired') return copy.player.nameRequired;
@@ -80,7 +81,16 @@ export function useShow() {
     };
   }, []);
 
-  const send = useCallback((message: unknown) => socket.current?.send(JSON.stringify(message)), []);
+  // A click in the second before the socket is back would go into a closed
+  // socket, which the browser drops without a word: the Presenter taps "Simulan
+  // ang show", the status says the connection is gone, and nothing happens.
+  const send = useCallback(
+    (message: unknown) => {
+      if (connection !== 'online') return;
+      socket.current?.send(JSON.stringify(message));
+    },
+    [connection],
+  );
 
   const me: RosterPlayer | null = token ? (state.roster.find((player) => player.id === token) ?? null) : null;
   const outcome = ack?.outcome;

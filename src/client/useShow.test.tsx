@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Player } from './Player.tsx';
 import { useShow } from './useShow.ts';
 import { copy } from '../content/show.ts';
@@ -120,6 +120,30 @@ describe('a Player phone', () => {
     act(() => FakeSocket.last().open());
 
     expect(FakeSocket.last().sent).toEqual([]);
+  });
+
+  it('is still the Player phone when the link arrived with a trailing slash', () => {
+    localStorage.setItem(TOKEN_KEY, 'p1');
+    window.history.pushState({}, '', '/play/');
+    render(<Phone />);
+
+    act(() => FakeSocket.last().open());
+
+    expect(FakeSocket.last().sent.map((s) => JSON.parse(s))).toEqual([{ kind: 'join', token: 'p1' }]);
+  });
+
+  it('does not lose a tap into the second before the socket is back', () => {
+    render(<Phone />);
+    const socket = FakeSocket.last();
+    act(() => socket.open());
+
+    act(() => socket.close());
+    fireEvent.change(screen.getByPlaceholderText(copy.player.namePlaceholder), { target: { value: 'Ana' } });
+    fireEvent.click(screen.getByRole('button', { name: copy.player.joinButton }));
+
+    // Sending here would go into a closed socket, and the browser drops it
+    // without a word — the Player taps and nothing at all happens.
+    expect(socket.sent).toEqual([]);
   });
 
   it('reaches for the server again by itself after dropping off the hotspot', () => {
