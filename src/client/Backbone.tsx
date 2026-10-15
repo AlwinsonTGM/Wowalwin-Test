@@ -112,8 +112,18 @@ export function Backbone({
           {copy.backbone.survivors(alive)}
         </p>
 
-        {over === 'cullComplete' && <p className="note">{copy.backbone.cullComplete}</p>}
-        {over === 'queueEmpty' && <p className="warning">{copy.backbone.queueSpent}</p>}
+        {/* A cull that finished with nobody in it is not a cull that produced a
+            bracket. Whether that state should be reachable is ticket 04's call;
+            saying "these are the ones for the bracket" when the list is empty is
+            simply untrue, and the Presenter is the one who has to act on it. */}
+        {over !== null && alive === 0 ? (
+          <p className="warning">{copy.backbone.cullEmpty}</p>
+        ) : (
+          <>
+            {over === 'cullComplete' && <p className="note">{copy.backbone.cullComplete}</p>}
+            {over === 'queueEmpty' && <p className="warning">{copy.backbone.queueSpent}</p>}
+          </>
+        )}
         {cullLowOnQuestions(state) && (
           <p className="warning">{copy.backbone.queueLow(questionsLeft(state))}</p>
         )}

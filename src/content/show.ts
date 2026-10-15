@@ -187,6 +187,14 @@ export const copy = {
     survivorsHeading: 'Nakalaan',
     survivors: (count: number) => `${count} ang nakalaan`,
     cullComplete: 'Tapos na ang cull. Ito na ang mga napili para sa bracket.',
+    /**
+     * Said when the cull finished with nobody in it. It is a state the machine
+     * can reach — a round where nobody answered correctly empties the room —
+     * and the usual "these are the ones for the bracket" is not merely wrong
+     * there, it is an invitation to carry on into a bracket with no entrants.
+     * What happens next is ticket 04's decision; this only refuses to pretend.
+     */
+    cullEmpty: 'Walang nakalaan. Walang makakapasok sa bracket.',
     queueSpent: 'Tapos na ang mga tanong at hindi pa naabot ang target ng nakalaan.',
     queueLow: (left: number) => `Konti na ang tanong: ${left} na lang. Maaaring hindi maabot ang target.`,
 

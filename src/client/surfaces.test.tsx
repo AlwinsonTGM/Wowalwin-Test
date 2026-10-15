@@ -453,6 +453,18 @@ describe('the cull on the Backbone', () => {
     expect(screen.queryByText(copy.backbone.queueSpent)).toBeNull();
   });
 
+  it('does not offer an empty bracket when the cull emptied the room', () => {
+    // A round nobody answered correctly really does empty the roster, and the
+    // machine really does call that cull finished. Saying "these are the ones
+    // for the bracket" with nothing in the list would be the Presenter being
+    // told to carry on into a bracket with no entrants.
+    render(backbone(cull(0)));
+
+    expect(screen.getByText(copy.backbone.cullEmpty)).toBeTruthy();
+    expect(screen.queryByText(copy.backbone.cullComplete)).toBeNull();
+    expect(screen.getByText(copy.backbone.survivors(0))).toBeTruthy();
+  });
+
   it('marks who is simulated, so a rehearsal is never mistaken for a room', () => {
     const roster = [
       { ...ana, simulated: true },
