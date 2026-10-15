@@ -131,6 +131,10 @@ export async function startShowServer({
 
   wss.on('connection', (client) => {
     let playerId: string | undefined;
+    // Whether this socket ever *asked* to play. Not the same question as whether
+    // it got in: `planJoin` refuses a phone without a claim, and a refused phone
+    // still has to be nobody.
+    let triedToJoin = false;
 
     const claim = (id: string) => {
       if (playerId !== id) openSockets.set(id, (openSockets.get(id) ?? 0) + 1);
@@ -143,11 +147,15 @@ export async function startShowServer({
     client.on('message', (raw) => {
       const message = parse(raw);
       if (!message) return;
+      if (message.kind === 'join') triedToJoin = true;
 
-      // Presenter-side controls, closed to any socket that has claimed a place
-      // on the roster for the same reason `startShow` is (ADR-0004). The rule
+      // Presenter-side controls, closed to any socket that has asked to be a
+      // Player — let in or turned away — for the same reason `startShow` is
+      // (ADR-0004). A refusal is the sharp case: it is the one outcome that leaves
+      // a socket with no claim and no roster place, so `playerId` on its own
+      // cannot tell a phone the show turned away from the Presenter. The rule
       // itself — whether a reveal may happen — is the machine's.
-      const isPresenter = playerId === undefined;
+      const isPresenter = playerId === undefined && !triedToJoin;
 
       if (message.kind === 'startShow') {
         if (isPresenter && state.phase === 'joining') record({ type: 'showStarted' });

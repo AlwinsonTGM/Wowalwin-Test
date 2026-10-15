@@ -41,6 +41,12 @@ function surface(port: number) {
     send: (message: ClientMessage) => ws.send(JSON.stringify(message)),
     /** A hard drop, the way a phone leaves the hotspot or locks. */
     drop: () => ws.terminate(),
+    /** Throw away everything already heard, so the next thing awaited is only
+     *  about what happens from here on. One broadcast counts once. */
+    drain: () => {
+      inbox.length = 0;
+      waiting.length = 0;
+    },
     next: (kind: ServerMessage['kind']): Promise<ServerMessage> => {
       const seen = inbox.findIndex((m) => m.kind === kind);
       if (seen !== -1) return Promise.resolve(inbox.splice(seen, 1)[0]!);
@@ -206,6 +212,105 @@ describe('starting the show', () => {
       const after = (await watcher.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
 
       expect(after.state.phase).toBe('joining');
+    });
+  });
+});
+
+describe('a phone the show turned away', () => {
+  /** How long a Backbone is given to hear something that should not exist.
+   *  Loopback puts a broadcast a millisecond away, so this only ever costs time
+   *  when silence really is the answer. */
+  const SILENCE = 1000;
+
+  /** What this surface is told next, or `'nothing'` when the server says nothing
+   *  at all. A control the server drops is answered with silence, so silence is
+   *  the only honest way to assert one had no effect. */
+  function within<T>(p: Promise<T>): Promise<T | 'nothing'> {
+    return Promise.race([p, new Promise<'nothing'>((r) => setTimeout(() => r('nothing'), SILENCE))]);
+  }
+
+  /**
+   * A refusal is the one join outcome that leaves a socket exactly as it found
+   * it: no `playerId`, no roster place, and no broadcast to prove it was ever
+   * here. So if the server sorts Presenter from Player by a claimed place, a
+   * turned-away phone looks exactly like the Presenter and every control on the
+   * Backbone is one tap away on any phone that opens the link mid-show (ADR-0004).
+   *
+   * Each test therefore drains the Backbone before the attempt and then waits for
+   * nothing. Draining is what makes these tests honest: one broadcast in the inbox
+   * is indistinguishable from a leak, and the handshake leaves one there for free.
+   */
+  it('cannot put the next question up, having never claimed a place', async () => {
+    await withServer(async (port) => {
+      const presenter = surface(port);
+      await presenter.ready;
+      await presenter.next('state');
+
+      const latecomer = surface(port);
+      await latecomer.ready;
+      latecomer.send({ kind: 'join', name: 'Latecomer' });
+      const ack = (await latecomer.next('joinAck')) as Extract<ServerMessage, { kind: 'joinAck' }>;
+      expect(ack.outcome).toBe('showStarted');
+
+      presenter.drain();
+      latecomer.send({ kind: 'presentQuestion' });
+
+      // A leak prints the whole broadcast it let through, answer included.
+      expect(await within(presenter.next('state'))).toBe('nothing');
+    }, [{ type: 'showStarted' }]);
+  });
+
+  it('cannot reveal an answer it was never shown', async () => {
+    const [question] = questionBank;
+    if (!question) throw new Error('the question bank needs a question for this test');
+
+    await withServer(
+      async (port) => {
+        const presenter = surface(port);
+        await presenter.ready;
+        await presenter.next('state');
+
+        const latecomer = surface(port);
+        await latecomer.ready;
+        latecomer.send({ kind: 'join', name: 'Latecomer' });
+        const ack = (await latecomer.next('joinAck')) as Extract<ServerMessage, { kind: 'joinAck' }>;
+        expect(ack.outcome).toBe('showStarted');
+
+        // The log is seeded straight to the suspense pause — question up, window
+        // closed — so the reveal is the only thing left for anyone to press.
+        presenter.drain();
+        latecomer.send({ kind: 'reveal' });
+
+        expect(await within(presenter.next('state'))).toBe('nothing');
+      },
+      [
+        { type: 'showStarted' },
+        { type: 'questionPresented', questionId: question.id, at: Date.now() },
+        { type: 'answerWindowClosed' },
+      ],
+    );
+  });
+
+  it('cannot start a show it was turned away from joining', async () => {
+    await withServer(async (port) => {
+      const presenter = surface(port);
+      await presenter.ready;
+      await presenter.next('state');
+
+      const latecomer = surface(port);
+      await latecomer.ready;
+      // `planJoin` settles a bad name before it ever looks at the phase, so this
+      // refusal happens while the show is still gathering and the Presenter's
+      // start button is still live — and the gate has no reason to care which
+      // refusal it was.
+      latecomer.send({ kind: 'join', name: '' });
+      const ack = (await latecomer.next('joinAck')) as Extract<ServerMessage, { kind: 'joinAck' }>;
+      expect(ack.outcome).toBe('nameRequired');
+
+      presenter.drain();
+      latecomer.send({ kind: 'startShow' });
+
+      expect(await within(presenter.next('state'))).toBe('nothing');
     });
   });
 });

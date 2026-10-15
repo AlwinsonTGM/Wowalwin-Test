@@ -22,8 +22,8 @@ export function Backbone({
 }) {
   const full = state.roster.length >= showConfig.playerCap;
   // `?? null` for the same reason as the Stage: "no question yet" has to be the
-// floor the control panel rests on, not something that falls through.
-const question = state.question ?? null;
+  // floor the control panel rests on, not something that falls through.
+  const question = state.question ?? null;
   // The Backbone is the only surface with sound, and the only one that knows the
   // answer before the reveal: both are read from content, never from a socket.
   const presenter = question ? forPresenter(question.id) : null;
