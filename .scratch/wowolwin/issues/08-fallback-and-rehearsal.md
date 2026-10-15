@@ -12,6 +12,7 @@ Simulated Players arrived back in ticket 03, where they were needed to test the 
 - [ ] A Presenter can run the whole show from the Backbone without a hotspot, a server reachable from outside, or a single real phone
 - [ ] Connection count and error state are visible at a glance on the Backbone, so the Presenter can decide whether to continue or fall back mid-show
 - [ ] Pinned draws make a full rehearsal reproduce identically on every run
+- [ ] A rehearsal cannot become the real show by accident: it writes to a different log, and the Backbone says which one is running
 - [ ] A rehearsal runs the entire show — join, Cull, Bracket, finale, deck — with no network and no phones
 - [ ] A reload or an unexpected error during a show does not end it or lose the roster
 - [ ] A single Player's phone failing mid-show does not block the round for everyone else
@@ -79,6 +80,14 @@ guard, it keeps ADR-0004's premise intact — a connection carries no identity, 
 delivering a fake one over a connection is the wrong shape — and it keeps a real
 event log clean, so a rehearsal against seeded players is never mistaken for a real
 roster.
+
+Ticket 03 found that "clean" was not enough on its own and ruled on it: the
+rehearsal writes to `data/rehearsal-log.json` and the real show to
+`data/event-log.json`, with no `simulated` flag on the event. Separation rather than
+labelling, because `npm run resume` on the day then *cannot* read a rehearsal roster
+whatever anyone forgets — the filesystem prevents the mistake instead of a human
+remembering a command. The Backbone badge is a copy string, not an event-schema
+change. Full reasoning in ticket 03's Comments.
 
 The structural reason, which is what makes the constraint hard to rediscover the
 easy way: from `started` onward the Backbone needs `presentQuestion` and `reveal`

@@ -54,3 +54,47 @@ cheap guard.
 **Testing note.** A seeded roster is a fixture, so seed it in the same shape as the
 event log the room-scale test in ticket 09 already builds — via the temp-log path,
 never the repository's `data/`, and port `0`.
+
+### Ruling: a rehearsal writes to a different file, not a flagged one
+
+Found by @Checker before this was built, having tested it rather than reasoned about
+it. Seeding into the shared `data/event-log.json` does not merely risk confusion, it
+produces a hard failure: 40 seeded players survive a restart, phase returns to
+`joining`, and a real phone is then refused with `rosterFull`. The Backbone reads
+"40 / 40 Players" while every dot is grey, so the room looks full and the one real
+phone is turned away.
+
+**Decision: separate storage over labelling.** Two files, never mixed.
+
+- Real show: `data/event-log.json` (today's `DEFAULT_LOG_PATH`, unchanged).
+- Seeded rehearsal: `data/rehearsal-log.json`.
+
+`GameEvent` gains **no** `simulated` flag. If the two logs never mix, a seeded
+`playerJoined` and a real one never coexist in one fold, so an unlabelled event costs
+nothing. Labelling would buy exactly one thing — a badge so the Presenter knows they
+are rehearsing — and that is a copy string on the Backbone, not an event-schema
+change. Do not put the flag in the event; put the word on the screen.
+
+**This also removes the real risk.** Right now the only thing standing between a
+rehearsal and the actual show is remembering `npm start` instead of `npm run resume`.
+Separate paths mean `npm run resume` on the day *cannot* pick up a rehearsal roster,
+whatever anyone forgets. That is the whole point: the failure mode is prevented by
+the filesystem instead of by a human remembering a command.
+
+**Not already wired, so do not assume it is.** `startShowServer` accepts `logPath`,
+but `index.ts` calls `startShowServer({ port })` and never passes one, so the default
+is the only reachable path today. Three small additions, all in this ticket because
+seeding is useless without them:
+
+1. `REHEARSAL_LOG_PATH` in `config.ts` alongside `DEFAULT_LOG_PATH`.
+2. `index.ts` selects between them, and only the real path is cleared by `--fresh`.
+   A rehearsal keeps its own log so a rehearsal can be resumed like a show.
+3. An `npm run rehearse` script. One word, and the Presenter cannot be in the wrong
+   mode by accident.
+
+**The grey dots are not a bug. Leave the count alone.** Seeded players show as
+disconnected because no socket holds them, and they will always — that is inherent to
+seeding, not a defect. Counting dropped players against the cap is deliberate
+(ticket 01: a disconnected phone keeps its place), so the "40 / 40" figure is correct
+and changing it would break a rule another ticket established. The badge is what
+distinguishes a rehearsal from a real room; the number is not what is wrong.
