@@ -1,23 +1,29 @@
 import { useState, type FormEvent } from 'react';
 import { copy, showConfig } from '../content/show.ts';
-import type { GameState, Player as RosterPlayer } from '../game/machine.ts';
+import type { Player as RosterPlayer, ShownState } from '../game/machine.ts';
 import type { Connection } from './useShow.ts';
+import { useSecondsLeft } from './clock.ts';
 
-/** A Player's phone: a name, and confirmation that they are in. Nothing more. */
+/** A Player's phone: a name, and an answer. It never grades, never shows who
+ *  was first, and never reveals — so nothing here reads `state.answer`. */
 export function Player({
   state,
   me,
   refusal,
   complaint,
   connection,
+  answerNote,
   onJoin,
+  onSubmitAnswer,
 }: {
-  state: GameState;
+  state: ShownState;
   me: RosterPlayer | null;
   refusal: string | null;
   complaint: string | null;
   connection: Connection;
+  answerNote: string | null;
   onJoin: (name: string) => void;
+  onSubmitAnswer: (optionId: string) => void;
 }) {
   const [name, setName] = useState('');
 
@@ -25,6 +31,10 @@ export function Player({
     event.preventDefault();
     onJoin(name);
   };
+
+  const question = state.question ?? null;
+  const open = state.phase === 'answering';
+  const seconds = useSecondsLeft(open && question ? question.askedAt : null);
 
   return (
     <main className="surface surface--player">
@@ -53,7 +63,26 @@ export function Player({
         </form>
       )}
 
-      {me && <p className="waiting">{copy.player.waitingForShow}</p>}
+      {me && question && (
+        <section className="question">
+          <h2 className="prompt">{question.prompt}</h2>
+          <p className="question-timer" role="timer">
+            {copy.player.secondsLeft(seconds)}
+          </p>
+          <ul className="options">
+            {question.options.map((option) => (
+              <li key={option.id}>
+                <button type="button" disabled={!open} onClick={() => onSubmitAnswer(option.id)}>
+                  {option.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="answer-note">{answerNote ?? (open ? copy.player.chooseAnswer : copy.player.windowClosed)}</p>
+        </section>
+      )}
+
+      {me && question === null && state.phase === 'joining' && <p className="waiting">{copy.player.waitingForShow}</p>}
     </main>
   );
 }

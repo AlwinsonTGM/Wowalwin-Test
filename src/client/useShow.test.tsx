@@ -49,7 +49,9 @@ function Phone() {
       refusal={show.refusal}
       complaint={show.complaint}
       connection={show.connection}
+      answerNote={show.answerNote}
       onJoin={show.join}
+      onSubmitAnswer={show.submitAnswer}
     />
   );
 }
@@ -161,5 +163,66 @@ describe('a Player phone', () => {
 
     expect(FakeSocket.opened).toHaveLength(2);
     expect(screen.queryByText(copy.player.reconnecting)).toBeNull();
+  });
+});
+
+describe('the answer window over the socket', () => {
+  /** A phone that has joined, with a question on screen and the window open. */
+  const aPhoneAnswering = () => {
+    localStorage.setItem(TOKEN_KEY, 'p1');
+    render(<Phone />);
+    const socket = FakeSocket.last();
+    act(() => socket.open());
+    act(() => socket.receive({ kind: 'joinAck', outcome: 'resumed', token: 'p1' }));
+    act(() =>
+      socket.receive({
+        kind: 'state',
+        state: {
+          phase: 'answering',
+          roster: [{ id: 'p1', name: 'Ana', connected: true }],
+          asked: ['q1'],
+          question: { id: 'q1', prompt: 'Bakit?', options: [{ id: 'a', label: 'Hindi' }], askedAt: 0 },
+          answer: null,
+        },
+      }),
+    );
+    return socket;
+  };
+
+  const sent = (socket: FakeSocket) => socket.sent.map((line) => JSON.parse(line));
+
+  it('sends the option the Player tapped', () => {
+    const socket = aPhoneAnswering();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hindi' }));
+
+    expect(sent(socket)).toContainEqual({ kind: 'submitAnswer', optionId: 'a' });
+  });
+
+  it('shows the show’s acknowledgement on the phone', () => {
+    const socket = aPhoneAnswering();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hindi' }));
+    act(() => socket.receive({ kind: 'answerAck', outcome: 'recorded' }));
+
+    expect(screen.getByText(copy.player.answer.recorded)).toBeTruthy();
+  });
+
+  it('says plainly that a second answer will not be taken', () => {
+    const socket = aPhoneAnswering();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hindi' }));
+    act(() => socket.receive({ kind: 'answerAck', outcome: 'alreadyAnswered' }));
+
+    expect(screen.getByText(copy.player.answer.alreadyAnswered)).toBeTruthy();
+  });
+
+  it('drops a tap into the second before the socket is back, rather than losing it', () => {
+    const socket = aPhoneAnswering();
+    act(() => socket.close());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hindi' }));
+
+    expect(sent(socket).filter((message) => message.kind === 'submitAnswer')).toEqual([]);
   });
 });

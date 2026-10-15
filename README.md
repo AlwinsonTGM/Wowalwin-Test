@@ -14,6 +14,13 @@ Phones must be on the laptop's Windows hotspot first, and nothing works until on
 
 The Backbone is `http://localhost:<port>/` on the presenter's laptop; the Stage is `/stage`.
 
+## Sound
+
+The tick, the sting and the reveal are declared in `src/content/show.ts` and
+expected in `public/audio/`. **Nothing ships with them**, so the show starts
+silent: a missing or unreadable file is named on the Backbone and never stops a
+question or a reveal. See `public/audio/README.md` for what each one is.
+
 ## Rehearsing on the day
 
 - **One network adapter up, on the show network.** On the presenter's laptop that is the wired

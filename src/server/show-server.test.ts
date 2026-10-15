@@ -7,8 +7,8 @@ import { startShowServer } from './show-server.ts';
 import { writeEventLog } from './event-log.ts';
 import { reachableHost } from './address.ts';
 import type { ServerMessage, ClientMessage } from '../shared/protocol.ts';
-import type { GameState, JoinOutcome } from '../game/machine.ts';
-import { copy, showConfig } from '../content/show.ts';
+import type { ShownState, JoinOutcome } from '../game/machine.ts';
+import { copy, questionBank, showConfig } from '../content/show.ts';
 
 const aTempLog = () => join(mkdtempSync(join(tmpdir(), 'wowolwin-')), 'event-log.json');
 
@@ -210,11 +210,181 @@ describe('starting the show', () => {
   });
 });
 
+describe('one question, answered and revealed', () => {
+  const [question] = questionBank;
+  if (!question) throw new Error('the question bank needs a question for these tests');
+
+  /** The next state this surface is told that matches: the ones before are the same show a moment earlier. */
+  async function until(s: ReturnType<typeof surface>, ok: (state: ShownState) => boolean): Promise<ShownState> {
+    for (;;) {
+      const message = (await s.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+      if (ok(message.state)) return message.state;
+    }
+  }
+
+  /** A joined phone, the Stage, and the Presenter's laptop, with a question open. */
+  async function aQuestionOnScreen(port: number) {
+    const phone = surface(port);
+    const stage = surface(port);
+    const presenter = surface(port);
+    await Promise.all([phone.ready, stage.ready, presenter.ready]);
+    await Promise.all([phone.next('state'), stage.next('state'), presenter.next('state')]);
+
+    phone.send({ kind: 'join', name: 'Ana' });
+    const ack = (await phone.next('joinAck')) as Extract<ServerMessage, { kind: 'joinAck' }>;
+    await Promise.all([phone.next('state'), stage.next('state'), presenter.next('state')]);
+
+    presenter.send({ kind: 'startShow' });
+    await presenter.next('state');
+    presenter.send({ kind: 'presentQuestion' });
+
+    return { phone, stage, presenter, playerId: ack.token! };
+  }
+
+  it('puts the question on the Stage and on every phone in the same broadcast', async () => {
+    await withServer(async (port) => {
+      const { phone, stage } = await aQuestionOnScreen(port);
+
+      const onStage = await until(stage, (state) => state.question !== null);
+      const onPhone = await until(phone, (state) => state.question !== null);
+
+      expect(onStage).toEqual(onPhone);
+      expect(onStage.phase).toBe('answering');
+      expect(onStage.question?.prompt).toBe(question.prompt);
+      expect(onStage.question?.options.map((option) => option.label)).toEqual(question.options.map((o) => o.label));
+    });
+  });
+
+  it('acknowledges a submission to the phone that made it, and to nobody else', async () => {
+    await withServer(async (port) => {
+      const { phone, stage, presenter } = await aQuestionOnScreen(port);
+
+      phone.send({ kind: 'submitAnswer', optionId: question.correctOptionId });
+
+      expect(await phone.next('answerAck')).toEqual({ kind: 'answerAck', outcome: 'recorded' });
+      // The other two surfaces are told the show moved. They are not told how.
+      expect(await stage.next('state')).toBeTruthy();
+      expect(await presenter.next('state')).toBeTruthy();
+    });
+  });
+
+  it('tells no surface anything about a submission, before the reveal', async () => {
+    await withServer(async (port) => {
+      const { phone, stage, presenter, playerId } = await aQuestionOnScreen(port);
+
+      phone.send({ kind: 'submitAnswer', optionId: question.correctOptionId });
+      await phone.next('answerAck');
+      const seenByStage = (await stage.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+      const seenByBackbone = (await presenter.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+
+      // ADR-0003. One broadcast carries all three surfaces, so the rule cannot
+      // be a surface choosing not to draw something: these five names are every
+      // field a socket can be given while the answer is sealed, and none of
+      // them is a submission — not the option, not the Player, not a count.
+      expect(Object.keys(seenByBackbone.state).sort()).toEqual(['answer', 'asked', 'phase', 'question', 'roster']);
+      expect(Object.keys(seenByStage.state)).not.toContain('sealed');
+      expect(JSON.stringify(seenByBackbone.state)).not.toContain('correct');
+      expect(seenByBackbone.state.answer).toBeNull();
+      // Every option is on screen, so the option ids are on the wire — what is
+      // not on the wire is any record of who picked one. `optionId` is how a
+      // submission names itself, and it appears nowhere.
+      expect(JSON.stringify(seenByBackbone.state)).not.toContain('optionId');
+      expect(seenByBackbone.state.roster.some((player) => player.id === playerId)).toBe(true);
+    });
+  });
+
+  it('takes one answer per Player and refuses the second', async () => {
+    await withServer(async (port) => {
+      const { phone } = await aQuestionOnScreen(port);
+
+      phone.send({ kind: 'submitAnswer', optionId: question.correctOptionId });
+      await phone.next('answerAck');
+
+      phone.send({ kind: 'submitAnswer', optionId: question.options[0]!.id });
+
+      expect(await phone.next('answerAck')).toEqual({ kind: 'answerAck', outcome: 'alreadyAnswered' });
+    });
+  });
+
+  it('closes the window on its own and takes nothing afterwards', async () => {
+    await withServer(async (port) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const { phone, stage, presenter } = await aQuestionOnScreen(port);
+        await until(stage, (state) => state.phase === 'answering');
+
+        await vi.advanceTimersByTimeAsync(showConfig.timings.answerSeconds * 1000 + 100);
+
+        const closed = await until(stage, (state) => state.phase === 'revealPending');
+        expect(closed.answer).toBeNull();
+
+        // Late is late: the phone is told the window has shut, and the Presenter
+        // is still looking at nothing, which is what suspense is made of.
+        phone.send({ kind: 'submitAnswer', optionId: question.correctOptionId });
+        expect(await phone.next('answerAck')).toEqual({ kind: 'answerAck', outcome: 'windowClosed' });
+        expect((await until(presenter, (state) => state.phase === 'revealPending')).answer).toBeNull();
+
+        presenter.send({ kind: 'reveal' });
+        const revealed = await until(stage, (state) => state.answer !== null);
+
+        expect(revealed.answer).toEqual({
+          questionId: question.id,
+          optionId: question.correctOptionId,
+          optionLabel: question.options.find((option) => option.id === question.correctOptionId)!.label,
+          submissions: [],
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it('reveals exactly once, and only when the window has closed', async () => {
+    await withServer(async (port) => {
+      const { phone, stage, presenter } = await aQuestionOnScreen(port);
+      await until(stage, (state) => state.phase === 'answering');
+
+      // Pressing early is not a reveal. Nothing is recorded and nothing is
+      // broadcast, which is why the next state any surface is told comes from
+      // an event that genuinely moves the show.
+      presenter.send({ kind: 'reveal' });
+      presenter.send({ kind: 'reveal' });
+
+      phone.send({ kind: 'submitAnswer', optionId: question.correctOptionId });
+      const after = (await stage.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+
+      expect(after.state.phase).toBe('answering');
+      expect(after.state.answer).toBeNull();
+      expect(await phone.next('answerAck')).toEqual({ kind: 'answerAck', outcome: 'recorded' });
+    });
+  });
+
+  it('keeps the Presenter’s controls away from a Player phone', async () => {
+    await withServer(async (port) => {
+      const { phone, stage } = await aQuestionOnScreen(port);
+      await until(stage, (state) => state.phase === 'answering');
+
+      phone.send({ kind: 'reveal' });
+      phone.send({ kind: 'presentQuestion' });
+
+      // None of that records anything, so the next broadcast comes from the one
+      // thing that does: the phone answering its own question.
+      phone.send({ kind: 'submitAnswer', optionId: question.correctOptionId });
+      const after = (await stage.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+
+      // No second question went up, and nothing was revealed.
+      expect(after.state.asked).toHaveLength(1);
+      expect(after.state.answer).toBeNull();
+      expect(await phone.next('answerAck')).toEqual({ kind: 'answerAck', outcome: 'recorded' });
+    });
+  });
+});
+
 describe('the show at room scale', () => {
   const ROOM = 50;
 
   /** The next state this surface is told that matches: the ones before are the same show a moment earlier. */
-  async function aStateWhere(s: ReturnType<typeof surface>, ok: (state: GameState) => boolean): Promise<GameState> {
+  async function aStateWhere(s: ReturnType<typeof surface>, ok: (state: ShownState) => boolean): Promise<ShownState> {
     for (;;) {
       const message = (await s.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
       if (ok(message.state)) return message.state;
@@ -238,7 +408,7 @@ describe('the show at room scale', () => {
         expect(inRoom('joined')).toHaveLength(showConfig.playerCap);
         expect(inRoom('rosterFull')).toHaveLength(ROOM - showConfig.playerCap);
 
-        const full = (state: GameState) => state.roster.length === showConfig.playerCap;
+        const full = (state: ShownState) => state.roster.length === showConfig.playerCap;
         const seenByRoom = await Promise.all(live.map((s) => aStateWhere(s, full)));
         expect(seenByRoom.every((state) => state.roster.every((p) => p.connected))).toBe(true);
 
@@ -246,7 +416,7 @@ describe('the show at room scale', () => {
         const witnesses = [...inRoom('joined').slice(20), ...inRoom('rosterFull')].map((i) => phones[i]!);
         leaving.forEach((i) => phones[i]!.drop());
 
-        const gone = (state: GameState) => state.roster.filter((p) => !p.connected).length === leaving.length;
+        const gone = (state: ShownState) => state.roster.filter((p) => !p.connected).length === leaving.length;
         const seenDrop = await Promise.all([...witnesses, presenter].map((s) => aStateWhere(s, gone)));
         expect(seenDrop.every(full)).toBe(true);
 
@@ -257,7 +427,7 @@ describe('the show at room scale', () => {
         await Promise.all(returning.map((s) => s.next('joinAck')));
 
         const everyone = [...witnesses, ...returning];
-        const allBack = (state: GameState) => state.roster.every((p) => p.connected);
+        const allBack = (state: ShownState) => state.roster.every((p) => p.connected);
         const seenReturn = await Promise.all(everyone.map((s) => aStateWhere(s, allBack)));
         expect(seenReturn.every(full)).toBe(true);
 

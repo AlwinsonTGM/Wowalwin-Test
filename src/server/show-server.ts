@@ -4,12 +4,22 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import express from 'express';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
-import { fold, planJoin, planResume } from '../game/machine.ts';
+import {
+  fold,
+  planCloseAnswerWindow,
+  planJoin,
+  planNextQuestion,
+  planReveal,
+  planResume,
+  planSubmitAnswer,
+  shown,
+} from '../game/machine.ts';
 import type { GameEvent } from '../game/events.ts';
 import type { ClientMessage, ServerMessage } from '../shared/protocol.ts';
 import { readEventLog, writeEventLog } from './event-log.ts';
 import { reachableHost } from './address.ts';
 import { CLIENT_DIR, DEFAULT_LOG_PATH } from './config.ts';
+import { showConfig } from '../content/show.ts';
 
 export type ShowServer = {
   port: number;
@@ -21,6 +31,11 @@ const parse = (raw: RawData): ClientMessage | null => {
   try {
     const message = JSON.parse(String(raw)) as Record<string, unknown>;
     if (message?.kind === 'startShow') return { kind: 'startShow' };
+    if (message?.kind === 'presentQuestion') return { kind: 'presentQuestion' };
+    if (message?.kind === 'reveal') return { kind: 'reveal' };
+    if (message?.kind === 'submitAnswer') {
+      return { kind: 'submitAnswer', optionId: typeof message.optionId === 'string' ? message.optionId : '' };
+    }
     if (message?.kind !== 'join') return null;
 
     const name = typeof message.name === 'string' ? message.name : undefined;
@@ -70,12 +85,39 @@ export async function startShowServer({
 
   const send = (client: WebSocket, message: ServerMessage) => client.send(JSON.stringify(message));
 
+  /**
+   * The clock the machine is not allowed to read. One timer, rearmed whenever
+   * the state changes, emits the close; whether a window was open is still the
+   * machine's call, so a late or duplicated timer cannot close a window that
+   * has already been revealed.
+   */
+  let windowTimer: NodeJS.Timeout | undefined;
+
   const record = (event: GameEvent) => {
     events.push(event);
     state = fold(events);
     writeEventLog(logPath, events);
-    const payload = JSON.stringify({ kind: 'state', state } satisfies ServerMessage);
+    // `shown`, not the raw state: the sealed submissions never leave the machine
+    // (ADR-0003), so a socket physically cannot deliver them to the Backbone.
+    const payload = JSON.stringify({ kind: 'state', state: shown(state) } satisfies ServerMessage);
     for (const client of wss.clients) if (client.readyState === client.OPEN) client.send(payload);
+
+    armAnswerWindow();
+  };
+
+  const armAnswerWindow = () => {
+    clearTimeout(windowTimer);
+    const question = state.question;
+    if (state.phase !== 'answering' || !question) return;
+
+    // Counted from when the question went up rather than from now, so a server
+    // that restarts mid-question closes the window when it was always going to
+    // close, not ten seconds after the restart.
+    const leftMs = showConfig.timings.answerSeconds * 1000 - (Date.now() - question.askedAt);
+    windowTimer = setTimeout(() => {
+      const plan = planCloseAnswerWindow(state);
+      if (plan.outcome === 'closed') record(plan.event);
+    }, Math.max(0, leftMs));
   };
 
   // A Player with the show link open twice is still one Player: only the last
@@ -96,18 +138,46 @@ export async function startShowServer({
     };
 
     send(client, { kind: 'serverInfo', joinHost });
-    send(client, { kind: 'state', state });
+    send(client, { kind: 'state', state: shown(state) });
 
     client.on('message', (raw) => {
       const message = parse(raw);
       if (!message) return;
 
+      // Presenter-side controls, closed to any socket that has claimed a place
+      // on the roster for the same reason `startShow` is (ADR-0004). The rule
+      // itself — whether a reveal may happen — is the machine's.
+      const isPresenter = playerId === undefined;
+
       if (message.kind === 'startShow') {
-        // A Player phone has no business starting the show, so a socket that
-        // has claimed a roster place never can. There is no Presenter identity
-        // on a connection at all (ADR-0004); this is the part of that we can
-        // hold honestly.
-        if (playerId === undefined && state.phase === 'joining') record({ type: 'showStarted' });
+        if (isPresenter && state.phase === 'joining') record({ type: 'showStarted' });
+        return;
+      }
+
+      if (message.kind === 'presentQuestion') {
+        if (!isPresenter) return;
+        const plan = planNextQuestion(state, Date.now());
+        if (plan.outcome === 'presented') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'reveal') {
+        if (!isPresenter) return;
+        const plan = planReveal(state);
+        if (plan.outcome === 'revealed') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'submitAnswer') {
+        // The Player is whoever this socket claimed, so a phone can only ever
+        // answer for itself. Submitting on someone else's behalf is ticket 08's
+        // fallback, and it gets the same rule through the same planner.
+        if (playerId === undefined) return;
+        const plan = planSubmitAnswer(state, { playerId, optionId: message.optionId });
+        if (plan.outcome === 'recorded') record(plan.event);
+        // The acknowledgement is about this socket's own submission, so it goes
+        // to this socket alone and says nothing about anybody else's.
+        send(client, { kind: 'answerAck', outcome: plan.outcome });
         return;
       }
 
@@ -146,11 +216,16 @@ export async function startShowServer({
 
   await new Promise<void>((ready) => http.listen(port, '0.0.0.0', ready));
 
+  // A log rebuilt from disk can already be mid-question; the window still has
+  // to close on its own without anyone pressing anything.
+  armAnswerWindow();
+
   return {
     port: (http.address() as { port: number }).port,
     joinHost,
     close: () =>
       new Promise<void>((done) => {
+        clearTimeout(windowTimer);
         for (const client of wss.clients) client.terminate();
         wss.close();
         http.closeAllConnections();

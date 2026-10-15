@@ -26,13 +26,22 @@ function App() {
         refusal={show.refusal}
         complaint={show.complaint}
         connection={show.connection}
+        answerNote={show.answerNote}
         onJoin={show.join}
+        onSubmitAnswer={show.submitAnswer}
       />
     );
   }
 
   return (
-    <Backbone state={show.state} joinUrl={show.joinUrl} connection={show.connection} onStartShow={show.startShow} />
+    <Backbone
+      state={show.state}
+      joinUrl={show.joinUrl}
+      connection={show.connection}
+      onStartShow={show.startShow}
+      onPresentQuestion={show.presentQuestion}
+      onReveal={show.reveal}
+    />
   );
 }
 

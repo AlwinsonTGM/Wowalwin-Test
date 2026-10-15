@@ -146,6 +146,67 @@ h1 {
   font-weight: 600;
 }
 
+.controls {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.countdown {
+  margin: 0.5rem 0 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown.is-closed {
+  color: var(--ink);
+}
+
+.reveal {
+  background: var(--gold);
+  color: var(--ink);
+}
+
+/* What only the Backbone may see: the answer and the Presenter's line. */
+.answer-key {
+  margin-top: 1rem;
+  border-top: 1px dashed #e3dacb;
+  padding-top: 0.75rem;
+}
+
+.answer-key .label {
+  display: block;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.answer-key .answer {
+  margin: 0.15rem 0 0.6rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.answer-key .cue {
+  margin: 0;
+  font-style: italic;
+}
+
+.submitted {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+}
+
+.mute {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--ink);
+  border-radius: 0.4rem;
+  background: #fff;
+  cursor: pointer;
+}
+
 /* Stage: read from the back of the room */
 
 .surface--stage {
@@ -194,6 +255,70 @@ h1 {
   border: 1px solid #4a4038;
   border-radius: 0.3rem;
   padding: 0.2rem 0.75rem;
+}
+
+/* A question, projected: readable from the back of the room. */
+
+.surface--stage .question {
+  display: grid;
+  gap: 1rem;
+  justify-items: center;
+  width: 100%;
+}
+
+.question-number {
+  margin: 0;
+  font-size: 1.5rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #b9ac9a;
+}
+
+.surface--stage .prompt {
+  margin: 0;
+  font-size: 3.5rem;
+  line-height: 1.15;
+  max-width: 20ch;
+}
+
+.surface--stage .options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+  width: 100%;
+  max-width: 60rem;
+}
+
+.surface--stage .options li {
+  border: 1px solid #4a4038;
+  border-radius: 0.4rem;
+  padding: 0.5rem 1rem;
+  font-size: 2rem;
+  text-align: left;
+}
+
+.surface--stage .options li.is-correct {
+  border-color: var(--gold);
+  background: rgba(212, 160, 23, 0.18);
+  color: var(--gold);
+  font-weight: 700;
+}
+
+.surface--stage .question-timer {
+  margin: 0;
+  font-size: 2.5rem;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.surface--stage .answer {
+  margin: 0;
+  font-size: 3rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--gold);
 }
 
 /* Player phone */
@@ -253,4 +378,48 @@ h1 {
 .refused {
   color: var(--rose);
   font-weight: 600;
+}
+
+.surface--player .question {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.surface--player .prompt {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.surface--player .question-timer {
+  margin: 0;
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--rose);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.surface--player .options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.surface--player .options button {
+  width: 100%;
+  text-align: left;
+}
+
+/* A control that cannot be delivered says so, rather than looking pressable. */
+.surface--player .options button:disabled {
+  background: var(--muted);
+  cursor: not-allowed;
+}
+
+.answer-note {
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
 }

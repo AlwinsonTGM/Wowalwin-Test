@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { GameState, JoinOutcome, Player as RosterPlayer } from '../game/machine.ts';
+import type { AnswerOutcome, JoinOutcome, ShownState } from '../game/machine.ts';
+import type { Player as RosterPlayer } from '../game/machine.ts';
 import type { ServerMessage } from '../shared/protocol.ts';
 import { copy, showConfig } from '../content/show.ts';
 import { surfaceFor } from './surface.ts';
@@ -25,7 +26,13 @@ const complaintFor = (outcome: JoinOutcome): string | null => {
  * returns and a sender of the events it accepts.
  */
 export function useShow() {
-  const [state, setState] = useState<GameState>({ phase: 'joining', roster: [] });
+  const [state, setState] = useState<ShownState>({
+    phase: 'joining',
+    roster: [],
+    asked: [],
+    question: null,
+    answer: null,
+  });
   /** undefined until the server says; null once it has said there is none. */
   const [joinHost, setJoinHost] = useState<string | null | undefined>(undefined);
   const [connection, setConnection] = useState<Connection>('connecting');
@@ -33,6 +40,7 @@ export function useShow() {
     isPlayerPhone() ? localStorage.getItem(TOKEN_KEY) : null,
   );
   const [ack, setAck] = useState<Extract<ServerMessage, { kind: 'joinAck' }> | null>(null);
+  const [answerAck, setAnswerAck] = useState<AnswerOutcome | null>(null);
   const socket = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -55,6 +63,7 @@ export function useShow() {
 
         if (message.kind === 'state') setState(message.state);
         if (message.kind === 'serverInfo') setJoinHost(message.joinHost);
+        if (message.kind === 'answerAck') setAnswerAck(message.outcome);
         if (message.kind === 'joinAck') {
           setAck(message);
           if (message.token && isPlayerPhone()) {
@@ -107,5 +116,10 @@ export function useShow() {
     joinUrl: joinHost === undefined ? undefined : joinHost ? `${location.protocol}//${joinHost}${port}${showConfig.playerPath}` : null,
     join: (name: string) => send({ kind: 'join', name }),
     startShow: () => send({ kind: 'startShow' }),
+    presentQuestion: () => send({ kind: 'presentQuestion' }),
+    submitAnswer: (optionId: string) => send({ kind: 'submitAnswer', optionId }),
+    reveal: () => send({ kind: 'reveal' }),
+    /** The show's own words for how this phone's last submission went. */
+    answerNote: answerAck === null ? null : copy.player.answer[answerAck],
   };
 }

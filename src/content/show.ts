@@ -11,7 +11,87 @@ export const showConfig = {
   backbonePath: '/',
   stagePath: '/stage',
   playerPath: '/play',
+  /** Seconds rather than milliseconds: the Presenter reads these as the show's pace. */
+  timings: {
+    /** The answer window. The Backbone counts it down so the Presenter knows
+     *  when to press the reveal, and the server closes it on its own. */
+    answerSeconds: 10,
+    /** How often the tick sounds while the answer window is open. */
+    tickSeconds: 1,
+  },
+  /**
+   * Where the presenters drop their audio files, relative to the site root.
+   * Nothing ships here: a file that is missing or unreadable degrades to
+   * silence and never blocks a transition, so a silent show is the default
+   * and never a broken one.
+   */
+  audio: {
+    tick: 'audio/tick.mp3',
+    sting: 'audio/sting.mp3',
+    reveal: 'audio/reveal.mp3',
+  },
 } as const;
+
+export type QuestionOption = { id: string; label: string };
+
+export type Question = {
+  id: string;
+  prompt: string;
+  options: QuestionOption[];
+  /**
+   * The option the machine grades as correct. ADR-0003: it is never broadcast
+   * before the Presenter reveals, so it must not appear in any state a socket
+   * carries.
+   */
+  correctOptionId: string;
+  /** The Presenter's line. The Backbone shows it and no other surface does. */
+  cue: string;
+};
+
+/**
+ * The question queue the show asks from, in order. Two questions are here so
+ * the queue can be seen to advance; ticket 06 fills out the Module 8 bank.
+ */
+export const questionBank: Question[] = [
+  {
+    id: 'q1-pagpaplano',
+    prompt: 'Bakit mahalaga ang pagpaplano bago magpasya?',
+    options: [
+      { id: 'a', label: 'Dahil masyadong maaasahan ang dating hula' },
+      { id: 'b', label: 'Dahil nagbibigay ito ng direksyon at sinusuri ang mangyayari' },
+      { id: 'c', label: 'Dahil hinihingi ito ng bangko' },
+      { id: 'd', label: 'Dahil ginagawa ito ng halos lahat ng matagumpay na negosyo' },
+    ],
+    correctOptionId: 'b',
+    cue: 'Ipakita kung magkano: ang plano ang nagbabawas ng malaking pagkalugi kapag mali ang pasya.',
+  },
+  {
+    id: 'q2-pagkabigo',
+    prompt: 'Ayos pa ang plano ng isang negosyante, namatay din siya. Ano ang sinasabi nito?',
+    options: [
+      { id: 'a', label: 'Mali talaga ang plano' },
+      { id: 'b', label: 'Walang plano talaga ang negosyante' },
+      { id: 'c', label: 'May plano, pero may bagay na wala sa kamay niya' },
+      { id: 'd', label: 'Kailangan pa lang palaging ng dagdag na plano' },
+    ],
+    correctOptionId: 'c',
+    cue: 'Dito nagsisimula ang failure: hindi lahat ng pagkabigo ay pagkakamali — marami ay kalkuladong taya na hindi naging gaya ng plano.',
+  },
+];
+
+/**
+ * What only the Backbone may show: the correct option's wording and the
+ * Presenter's line. ADR-0003 puts the answer in the server's hands and the
+ * *when* in the Presenters', so this is read from the content file on the
+ * presenter's own laptop and never travels over a socket before the reveal.
+ */
+export const forPresenter = (questionId: string): { answer: string; cue: string } | null => {
+  const question = questionBank.find((candidate) => candidate.id === questionId);
+  const correct = question?.options.find((option) => option.id === question.correctOptionId);
+  if (!question || !correct) return null;
+
+  return { answer: correct.label, cue: question.cue };
+};
 
 export const copy = {
   showTitle: 'Wowolwin',
@@ -42,6 +122,24 @@ export const copy = {
     startShow: 'Simulan ang show',
     showStarted: 'Nagsimula na ang show. Hindi na makakapasok ang bago.',
     joinLinkHeading: 'Link para sa mga Players',
+
+    /** The Presenter's side of one question. */
+    controlHeading: 'Kontrol ng show',
+    nothingPresented: 'Wala pang tinatanong. Pindutin ang button para magsimula.',
+    presentQuestion: 'Ipakita ang tanong',
+    reveal: 'Ipakita ang sagot',
+    countdown: (seconds: number) => `${seconds} segundo bago maisasara ang sagot`,
+    windowClosed: 'Sarado na ang pagsusagot. Puwede nang ituloy ang reveal.',
+    answerHeading: 'Tamang sagot',
+    cueHeading: 'Line para sa Presenter',
+    submitted: (count: number) => `${count} ang nagsagot`,
+    submittedNone: 'Walang nagsagot.',
+
+    /** One control for every sound in the show. */
+    mute: 'Patayin ang tunog',
+    unmute: 'Buksan ang tunog',
+    muted: 'Naka-mute ang tunog.',
+    audioMissing: (file: string) => `Hindi marinig ang ${file}. Ilagay ang audio file para may tunog.`,
   },
 
   stage: {
@@ -51,6 +149,10 @@ export const copy = {
     rosterHeading: 'Nakapasok na Players',
     rosterEmpty: 'Hintayin natin ang mga Players…',
     rosterCount: (joined: number) => `${joined} ang naka-join`,
+    questionNumber: (asked: number) => `Tanong ${asked}`,
+    secondsLeft: (seconds: number) => `${seconds} segundo`,
+    waiting: 'Hintayin…',
+    answerHeading: 'Ang sagot',
   },
 
   player: {
@@ -67,6 +169,20 @@ export const copy = {
     refused: {
       rosterFull: 'Puno na ang roster. Hindi ka na makakapasok.',
       showStarted: 'Nagsimula na ang show. Hindi ka na makakapasok, pero manood ka lang.',
+    },
+
+    /** The question on the phone. The phone answers and nothing else. */
+    chooseAnswer: 'Pumili ng sagot',
+    secondsLeft: (seconds: number) => `${seconds}s`,
+    windowClosed: 'Sarado na ang pagsusagot.',
+    waitingForReveal: 'Naghihintay ng reveal…',
+    /** The show's answer to a submission, in the Player's own words. */
+    answer: {
+      recorded: 'Naisulat na ang sagot mo.',
+      alreadyAnswered: 'Sagot mo na ito. Isang sagot lang kada tanong.',
+      windowClosed: 'Sarado na ang pagsusagot.',
+      notPlaying: 'Hindi ka naka-play sa tanong na ito.',
+      notAnOption: 'Hindi wasto ang piniling sagot.',
     },
   },
 } as const;
