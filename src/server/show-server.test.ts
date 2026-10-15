@@ -7,6 +7,7 @@ import { startShowServer } from './show-server.ts';
 import { writeEventLog } from './event-log.ts';
 import { reachableHost } from './address.ts';
 import type { ServerMessage, ClientMessage } from '../shared/protocol.ts';
+import type { GameState, JoinOutcome } from '../game/machine.ts';
 import { copy, showConfig } from '../content/show.ts';
 
 const aTempLog = () => join(mkdtempSync(join(tmpdir(), 'wowolwin-')), 'event-log.json');
@@ -57,15 +58,6 @@ describe('the join link', () => {
 
       expect(message.joinHost).toBe(reachableHost());
     });
-  });
-
-  it('prefers the hotspot address over another adapter', () => {
-    const hotspot = reachableHost({
-      'Ethernet': [{ address: '10.0.0.5', family: 'IPv4', internal: false }],
-      'Local Area Connection* 12': [{ address: '192.168.137.1', family: 'IPv4', internal: false }],
-    } as never);
-
-    expect(hotspot).toBe('192.168.137.1');
   });
 });
 
@@ -214,6 +206,82 @@ describe('starting the show', () => {
       const after = (await watcher.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
 
       expect(after.state.phase).toBe('joining');
+    });
+  });
+});
+
+describe('the show at room scale', () => {
+  const ROOM = 50;
+
+  /** The next state this surface is told that matches: the ones before are the same show a moment earlier. */
+  async function aStateWhere(s: ReturnType<typeof surface>, ok: (state: GameState) => boolean): Promise<GameState> {
+    for (;;) {
+      const message = (await s.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+      if (ok(message.state)) return message.state;
+    }
+  }
+
+  it('holds the cap, the whole room seeing it, a drop-and-return, and the Presenter start', async () => {
+    await withServer(async (port) => {
+      const phones = Array.from({ length: ROOM }, () => surface(port));
+      const presenter = surface(port);
+      const live = [...phones, presenter];
+
+      try {
+        await Promise.all(live.map((s) => s.ready));
+
+        const joinedAt = Date.now();
+        phones.forEach((phone, i) => phone.send({ kind: 'join', name: `Player ${i}` }));
+        const acks = (await Promise.all(phones.map((p) => p.next('joinAck')))) as Extract<ServerMessage, { kind: 'joinAck' }>[];
+
+        const inRoom = (outcome: JoinOutcome) => acks.flatMap((ack, i) => (ack.outcome === outcome ? [i] : []));
+        expect(inRoom('joined')).toHaveLength(showConfig.playerCap);
+        expect(inRoom('rosterFull')).toHaveLength(ROOM - showConfig.playerCap);
+
+        const full = (state: GameState) => state.roster.length === showConfig.playerCap;
+        const seenByRoom = await Promise.all(live.map((s) => aStateWhere(s, full)));
+        expect(seenByRoom.every((state) => state.roster.every((p) => p.connected))).toBe(true);
+
+        const leaving = inRoom('joined').slice(0, 20);
+        const witnesses = [...inRoom('joined').slice(20), ...inRoom('rosterFull')].map((i) => phones[i]!);
+        leaving.forEach((i) => phones[i]!.drop());
+
+        const gone = (state: GameState) => state.roster.filter((p) => !p.connected).length === leaving.length;
+        const seenDrop = await Promise.all([...witnesses, presenter].map((s) => aStateWhere(s, gone)));
+        expect(seenDrop.every(full)).toBe(true);
+
+        const returning = leaving.map((i) => surface(port));
+        live.push(...returning);
+        await Promise.all(returning.map((s) => s.ready));
+        returning.forEach((s, i) => s.send({ kind: 'join', token: acks[leaving[i]!]!.token }));
+        await Promise.all(returning.map((s) => s.next('joinAck')));
+
+        const everyone = [...witnesses, ...returning];
+        const allBack = (state: GameState) => state.roster.every((p) => p.connected);
+        const seenReturn = await Promise.all(everyone.map((s) => aStateWhere(s, allBack)));
+        expect(seenReturn.every(full)).toBe(true);
+
+        presenter.send({ kind: 'startShow' });
+        const started = await Promise.all([...everyone, presenter].map((s) => aStateWhere(s, (state) => state.phase === 'started')));
+        expect(started).toHaveLength(ROOM + 1); // the fifty phones, and the Backbone that started it
+
+        const late = surface(port);
+        live.push(late);
+        await late.ready;
+        late.send({ kind: 'join', name: 'Late' });
+        expect(await late.next('joinAck')).toEqual({ kind: 'joinAck', outcome: 'showStarted' });
+
+        // A canary against a pathological regression, not a benchmark: 50
+        // loopback sockets are not 50 phones, but this ran in ~110ms, so 2s only
+        // fires when something is genuinely wrong. Everything asserted above is
+        // state, never latency.
+        expect(Date.now() - joinedAt).toBeLessThan(2000);
+      } finally {
+        // ws keeps the event loop alive while a socket is open, so a failed
+        // assertion that leaves them behind hangs vitest instead of reporting
+        // the failure.
+        for (const s of live) s.drop();
+      }
     });
   });
 });

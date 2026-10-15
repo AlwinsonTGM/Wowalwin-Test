@@ -13,3 +13,19 @@ A live game show for Module 8, played in a classroom: one laptop, a projector, a
 Phones must be on the laptop's Windows hotspot first, and nothing works until one has joined it. Test on a real phone before the day.
 
 The Backbone is `http://localhost:<port>/` on the presenter's laptop; the Stage is `/stage`.
+
+## Rehearsing on the day
+
+- **One network adapter up, on the show network.** On the presenter's laptop that is the wired
+  ethernet and the ONT's Wi-Fi, with laptop Wi-Fi, Tailscale and any VPN off. The console prints
+  one address and will not guess: with two private addresses up it prints `??` and says why,
+  because a wrong address is indistinguishable from a broken app.
+- **The printed address is the wired adapter's**, on `192.168.100.` — not the Tailscale one
+  (`169.254.`) that a phone can never open.
+- **The Windows Firewall rule must allow node.exe on the Private profile.** The rule on this
+  machine allows `Public` only while the ethernet profile is `Private`, so inbound is blocked
+  and the symptom is a phone that loads nothing at all.
+- **The 2.4GHz and 5GHz bands have different SSIDs.** On one shared SSID the ONT enables band
+  steering and pushes phones onto the shorter-range band, so the back of the room drops.
+  Separate SSIDs turn it off and let the room split across both bands, which is what keeps each
+  one under Huawei's own 30-per-band guidance.

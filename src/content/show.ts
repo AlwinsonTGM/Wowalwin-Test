@@ -19,7 +19,7 @@ export const copy = {
 
   /** ADR-0002: the room can only be reached if these two things are on screen. */
   common: {
-    noAddress: 'Walang mahanap na address. Buksan ang hotspot saka i-restart.',
+    noAddress: 'Hindi mahanap ang tamang address. Buksan ang hotspot o i-off ang extrang Wi-Fi, saka i-restart.',
     firewallNote: 'Kung hindi makakapasok ang phone, i-check ang Windows Firewall para sa private network.',
     logUnreadable: (path: string) => `Hindi mabasa ang event log sa ${path}. Nawala ang dating roster.`,
   },
