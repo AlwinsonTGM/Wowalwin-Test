@@ -33,6 +33,7 @@ export const showConfig = {
     tick: 'audio/tick.mp3',
     sting: 'audio/sting.mp3',
     reveal: 'audio/reveal.mp3',
+    bokya: 'audio/bokya.mp3',
   },
   cull: {
     /** The cull stops here. Ten or fewer Players is the size of the bracket. */
@@ -187,6 +188,18 @@ export const copy = {
       final: 'Final',
     },
 
+    /** Pera o Kahon finale controls (ticket 05) */
+    startFinale: 'Simulan ang Pera o Kahon',
+    finaleHeading: 'Pera o Kahon',
+    choosePeraOnBehalf: 'Piliin ang Pera para sa Finalist',
+    chooseKahonOnBehalf: 'Piliin ang Kahon para sa Finalist',
+    revealKahon: 'Buksan ang Kahon',
+    drawnPrizeReady: (label: string, value: string) => `Nasa Kahon: ${label} (${value}). Ihanda ang prop box bago buksan.`,
+    peraWon: (label: string, value: string) => `Pinili ang Pera: ${label} (${value}).`,
+    bokyaResult: 'Bokya ang kinalabasan.',
+    wonResult: (label: string, value: string) => `Panalo: ${label} (${value})!`,
+    placeholderWarning: 'Babala: Stand-in / placeholder pa ang mga premyo sa table.',
+
     /** One control for every sound in the show. */
     mute: 'Patayin ang tunog',
     unmute: 'Buksan ang tunog',
@@ -218,6 +231,18 @@ export const copy = {
       semi: 'Semifinals',
       final: 'Final',
     },
+
+    /** Pera o Kahon finale (ticket 05) */
+    finaleHeading: 'Pera o Kahon',
+    finalistPrompt: (name: string) => `${name}, ano ang pipiliin mo: Pera o Kahon?`,
+    peraOption: (value: string) => `Pera (${value} voucher)`,
+    kahonOption: 'Mahiwagang Kahon',
+    kahonChosen: (name: string) => `Pinili ni ${name} ang Kahon!`,
+    peraChosen: (name: string) => `Pinili ni ${name} ang Pera!`,
+    kahonOpening: 'Binubuksan ang Kahon…',
+    wonPrize: (label: string, value: string) => `Panalo: ${label} (${value})!`,
+    wonBokya: 'Bokya! Walang napanalunang premyo.',
+    placeholderWarning: 'Paalala: Stand-in / placeholder pa ang mga premyo.',
   },
 
   player: {
@@ -254,5 +279,15 @@ export const copy = {
     waitingForTurn: 'Naghihintay ng iyong laban…',
     boutWon: 'Panalo ka sa bout! Pasok ka sa susunod na laban.',
     boutLost: 'Talo ka sa bout. Tapos na ang laban mo.',
+
+    /** Pera o Kahon finale (ticket 05) */
+    finalePrompt: 'Pera o Kahon? Pumili sa ibaba:',
+    peraButton: (value: string) => `Pera (${value})`,
+    kahonButton: 'Kahon',
+    peraSelected: 'Pinili mo ang Pera!',
+    kahonSelected: 'Pinili mo ang Kahon! Hintayin ang pagbukas sa Stage…',
+    finalistResult: (label: string, value: string) => `Napanalunan mo: ${label} (${value})!`,
+    finalistBokya: 'Bokya! Walang napanalunan.',
+    notFinalist: 'Manood sa Stage para sa Pera o Kahon!',
   },
 } as const;

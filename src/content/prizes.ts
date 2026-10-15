@@ -62,6 +62,7 @@ export const kahonTable: readonly Prize[] = [...kahonPrizes, Bokya];
 export const hasPlaceholderPrizes = (): boolean =>
   Pera.placeholder || kahonTable.some((prize) => prize.placeholder);
 
-export const findPrize = (id: string): Prize | undefined => kahonTable.find((prize) => prize.id === id);
+export const findPrize = (id: string): Prize | undefined =>
+  id === Pera.id ? Pera : kahonTable.find((prize) => prize.id === id);
 
 export const peso = (value: number): string => `₱${value}`;

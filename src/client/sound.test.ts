@@ -36,6 +36,20 @@ describe('what a state change sounds like', () => {
     expect(cuesBetween(aPhase('joining'), aPhase('started'))).toEqual([]);
     expect(cuesBetween(aPhase('revealed'), aPhase('answering'))).toEqual(['tick']);
   });
+
+  it('sounds bokya distinctly when Bokya is revealed in the finale', () => {
+    const unrevealed = { phase: 'started', finale: { revealed: false, drawnPrizeId: 'bokya' } };
+    const revealed = { phase: 'started', finale: { revealed: true, drawnPrizeId: 'bokya' } };
+
+    expect(cuesBetween(unrevealed, revealed)).toEqual(['bokya']);
+  });
+
+  it('sounds reveal when a winning prize is revealed in the finale', () => {
+    const unrevealed = { phase: 'started', finale: { revealed: false, drawnPrizeId: 'kahon-1' } };
+    const revealed = { phase: 'started', finale: { revealed: true, drawnPrizeId: 'kahon-1' } };
+
+    expect(cuesBetween(unrevealed, revealed)).toEqual(['reveal']);
+  });
 });
 
 describe('the sound device', () => {
@@ -46,6 +60,15 @@ describe('the sound device', () => {
     sound.play('sting');
 
     expect(device.asked).toEqual([showConfig.audio.sting]);
+  });
+
+  it('plays the bokya file when bokya cue is played', () => {
+    const device = aDevice();
+    const sound = createSound({ createAudio: device.create });
+
+    sound.play('bokya');
+
+    expect(device.asked).toEqual([showConfig.audio.bokya]);
   });
 
   it('is silent, and stays silent, once muted', () => {

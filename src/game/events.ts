@@ -35,4 +35,9 @@ export type GameEvent =
   /** Ticket 04: Re-running a bout when neither Player submitted. */
   | { type: 'boutRerun' }
   /** Ticket 04: Deliberate confirmed reversal of a mistaken elimination. */
-  | { type: 'eliminationReversed'; playerId: string };
+  | { type: 'eliminationReversed'; playerId: string }
+  /** Ticket 05: The Pera o Kahon finale */
+  | { type: 'finaleStarted'; seed?: number }
+  | { type: 'peraChosen' }
+  | { type: 'kahonDrawn'; prizeId: string; seed?: number }
+  | { type: 'kahonRevealed' };

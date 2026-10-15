@@ -8,6 +8,7 @@ import type { ShownState, Player as RosterPlayer, BracketState } from '../game/m
 import { copy, showConfig } from '../content/show.ts';
 import { cullQuestions, forPresenter } from '../content/questions.ts';
 import { questionsLeft } from '../game/machine.ts';
+import { Pera, Bokya, findPrize, peso, hasPlaceholderPrizes, kahonTable } from '../content/prizes.ts';
 
 /**
  * The Backbone is the one surface that speaks, and these tests are about what
@@ -39,6 +40,7 @@ const aShow = (roster: RosterPlayer[] = [], phase: ShownState['phase'] = 'joinin
   answer: null,
   simulation: { armed: false, mode: 'mixed' },
   bracket: null,
+  finale: null,
 });
 
 /** One question on screen, exactly as the machine would publish it. */
@@ -944,6 +946,341 @@ describe('the bracket on the surfaces', () => {
       for (const opt of theQuestion.options) {
         expect(screen.getByRole('button', { name: opt.label })).toBeTruthy();
       }
+    });
+  });
+
+  describe('Pera o Kahon (Ticket 05) on the surfaces', () => {
+    const p1: RosterPlayer = { id: 'p1', name: 'Ana', connected: true, standing: 'in', simulated: false };
+    const p2: RosterPlayer = { id: 'p2', name: 'Ben', connected: true, standing: 'out', simulated: false };
+    const finalistRoster = [p1, p2];
+
+    const crownedBracket: BracketState = {
+      bouts: [
+        { id: 'bout-1', round: 'quarter', index: 0, player1Id: 'p1', player2Id: 'p2', winnerId: 'p1' },
+        { id: 'bout-2', round: 'quarter', index: 1, player1Id: null, player2Id: null, winnerId: null },
+        { id: 'bout-3', round: 'quarter', index: 2, player1Id: null, player2Id: null, winnerId: null },
+        { id: 'bout-4', round: 'quarter', index: 3, player1Id: null, player2Id: null, winnerId: null },
+        { id: 'bout-5', round: 'semi', index: 4, player1Id: 'p1', player2Id: null, winnerId: 'p1' },
+        { id: 'bout-6', round: 'semi', index: 5, player1Id: null, player2Id: null, winnerId: null },
+        { id: 'bout-7', round: 'final', index: 6, player1Id: 'p1', player2Id: null, winnerId: 'p1' },
+      ],
+      currentBoutId: 'bout-7',
+      finalistId: 'p1',
+    };
+
+    const aFinaleShow = (over: Partial<ShownState> = {}): ShownState => ({
+      ...aShow(finalistRoster, 'started'),
+      bracket: crownedBracket,
+      ...over,
+    });
+
+    const finaleBackbone = (state: ShownState, over: Partial<Parameters<typeof Backbone>[0]> = {}) => (
+      <Backbone
+        state={state}
+        joinUrl={JOIN_URL}
+        connection="online"
+        onStartShow={() => {}}
+        onPresentQuestion={() => {}}
+        onReveal={() => {}}
+        onSimulate={() => {}}
+        onClearSimulated={() => {}}
+        onSimulateAnswers={() => {}}
+        onSetSimulation={() => {}}
+        {...over}
+      />
+    );
+
+    const finalePhone = (over: Partial<Parameters<typeof Player>[0]> = {}) => (
+      <Player
+        state={aFinaleShow()}
+        me={p1}
+        refusal={null}
+        complaint={null}
+        connection="online"
+        answerNote={null}
+        onJoin={() => {}}
+        onSubmitAnswer={() => {}}
+        {...over}
+      />
+    );
+
+    describe('Backbone in the finale', () => {
+      it('offers button to start Pera o Kahon when finalist is crowned', () => {
+        const onStartFinale = vi.fn();
+        render(finaleBackbone(aFinaleShow(), { onStartFinale }));
+
+        const startButton = screen.getByRole('button', { name: copy.backbone.startFinale });
+        expect(startButton).toBeTruthy();
+
+        fireEvent.click(startButton);
+        expect(onStartFinale).toHaveBeenCalled();
+      });
+
+      it('does not offer button to start Pera o Kahon before bracket is seeded or while in progress', () => {
+        const onStartFinale = vi.fn();
+        const unseeded = aShow([p1, p2], 'joining');
+        const { rerender } = render(finaleBackbone(unseeded, { onStartFinale }));
+        expect(screen.queryByRole('button', { name: copy.backbone.startFinale })).toBeNull();
+
+        const inProgress = aFinaleShow({
+          bracket: {
+            ...crownedBracket,
+            finalistId: null,
+          },
+        });
+        rerender(finaleBackbone(inProgress, { onStartFinale }));
+        expect(screen.queryByRole('button', { name: copy.backbone.startFinale })).toBeNull();
+      });
+
+      it('offers Presenter buttons to choose Pera or Kahon on Finalist’s behalf', () => {
+        const onChoosePera = vi.fn();
+        const onChooseKahon = vi.fn();
+        const state = aFinaleShow({
+          finale: {
+            choice: null,
+            drawnPrizeId: null,
+            revealed: false,
+          },
+        });
+
+        render(finaleBackbone(state, { onChoosePera, onChooseKahon }));
+
+        const peraButton = screen.getByRole('button', { name: copy.backbone.choosePeraOnBehalf });
+        const kahonButton = screen.getByRole('button', { name: copy.backbone.chooseKahonOnBehalf });
+        expect(peraButton).toBeTruthy();
+        expect(kahonButton).toBeTruthy();
+
+        fireEvent.click(peraButton);
+        expect(onChoosePera).toHaveBeenCalled();
+
+        fireEvent.click(kahonButton);
+        expect(onChooseKahon).toHaveBeenCalled();
+      });
+
+      it('knows the drawn prize before reveal animation runs on Stage, with operator-triggered reveal button', () => {
+        const onRevealKahon = vi.fn();
+        const drawnPrize = kahonTable[3]!; // Isang libre para sa merienda
+        const state = aFinaleShow({
+          finale: {
+            choice: 'kahon',
+            drawnPrizeId: drawnPrize.id,
+            revealed: false,
+          },
+        });
+
+        render(finaleBackbone(state, { onRevealKahon }));
+
+        expect(screen.getByText(copy.backbone.drawnPrizeReady(drawnPrize.label, peso(drawnPrize.value)))).toBeTruthy();
+
+        const revealButton = screen.getByRole('button', { name: copy.backbone.revealKahon });
+        expect(revealButton).toBeTruthy();
+
+        fireEvent.click(revealButton);
+        expect(onRevealKahon).toHaveBeenCalled();
+      });
+
+      it('warns the Presenter when placeholder prizes exist in the table', () => {
+        const state = aFinaleShow({
+          finale: {
+            choice: null,
+            drawnPrizeId: null,
+            revealed: false,
+          },
+        });
+
+        render(finaleBackbone(state));
+        expect(hasPlaceholderPrizes()).toBe(true);
+        expect(screen.getByText(copy.backbone.placeholderWarning)).toBeTruthy();
+      });
+    });
+
+    describe('Stage in the finale', () => {
+      it('prompts the Finalist by name with unhurried choices between Pera and Kahon', () => {
+        const state = aFinaleShow({
+          finale: {
+            choice: null,
+            drawnPrizeId: null,
+            revealed: false,
+          },
+        });
+
+        render(<Stage state={state} joinUrl={JOIN_URL} />);
+
+        expect(screen.getByText(copy.stage.finaleHeading)).toBeTruthy();
+        expect(screen.getByText(copy.stage.finalistPrompt('Ana'))).toBeTruthy();
+        expect(screen.getByText(copy.stage.peraOption(peso(Pera.value)))).toBeTruthy();
+        expect(screen.getByText(copy.stage.kahonOption)).toBeTruthy();
+      });
+
+      it('shows the stand-in / placeholder warning on Stage before the box is opened', () => {
+        const state = aFinaleShow({
+          finale: {
+            choice: null,
+            drawnPrizeId: null,
+            revealed: false,
+          },
+        });
+
+        render(<Stage state={state} joinUrl={JOIN_URL} />);
+        expect(screen.getByText(copy.stage.placeholderWarning)).toBeTruthy();
+      });
+
+      it('names the winning prize exactly as it appears in content when Kahon is revealed', () => {
+        const winningPrize = kahonTable[6]!; // Isang grocery hamper (300)
+        const state = aFinaleShow({
+          finale: {
+            choice: 'kahon',
+            drawnPrizeId: winningPrize.id,
+            revealed: true,
+          },
+        });
+
+        render(<Stage state={state} joinUrl={JOIN_URL} />);
+
+        expect(screen.getByText(copy.stage.wonPrize(winningPrize.label, peso(winningPrize.value)))).toBeTruthy();
+        expect(screen.getByText(copy.stage.kahonChosen('Ana'))).toBeTruthy();
+      });
+
+      it('names Bokya and ₱0 when Bokya is revealed from the Kahon', () => {
+        const state = aFinaleShow({
+          finale: {
+            choice: 'kahon',
+            drawnPrizeId: Bokya.id,
+            revealed: true,
+          },
+        });
+
+        render(<Stage state={state} joinUrl={JOIN_URL} />);
+
+        expect(screen.getByText(`${copy.stage.wonBokya} (${peso(0)})`)).toBeTruthy();
+      });
+
+      it('names the Pera voucher exactly when Pera is chosen', () => {
+        const state = aFinaleShow({
+          finale: {
+            choice: 'pera',
+            drawnPrizeId: Pera.id,
+            revealed: true,
+          },
+        });
+
+        render(<Stage state={state} joinUrl={JOIN_URL} />);
+
+        expect(screen.getByText(copy.stage.wonPrize(Pera.label, peso(Pera.value)))).toBeTruthy();
+        expect(screen.getByText(copy.stage.peraChosen('Ana'))).toBeTruthy();
+      });
+
+      it('keeps drawn prize hidden on Stage during Kahon suspense before operator triggers reveal', () => {
+        const drawnPrize = kahonTable[4]!; // Isang balon ng soft drinks
+        const state = aFinaleShow({
+          finale: {
+            choice: 'kahon',
+            drawnPrizeId: drawnPrize.id,
+            revealed: false,
+          },
+        });
+
+        render(<Stage state={state} joinUrl={JOIN_URL} />);
+
+        expect(screen.getByText(copy.stage.kahonOpening)).toBeTruthy();
+        expect(screen.queryByText(new RegExp(drawnPrize.label))).toBeNull();
+      });
+    });
+
+    describe('Player phone in the finale', () => {
+      it('offers the Finalist the choice on their phone and dispatches their selection', () => {
+        const onChoosePera = vi.fn();
+        const onChooseKahon = vi.fn();
+        const state = aFinaleShow({
+          finale: {
+            choice: null,
+            drawnPrizeId: null,
+            revealed: false,
+          },
+        });
+
+        render(finalePhone({ state, me: p1, onChoosePera, onChooseKahon }));
+
+        expect(screen.getByText(copy.player.finalePrompt)).toBeTruthy();
+        const peraBtn = screen.getByRole('button', { name: copy.player.peraButton(peso(Pera.value)) });
+        const kahonBtn = screen.getByRole('button', { name: copy.player.kahonButton });
+        expect(peraBtn).toBeTruthy();
+        expect(kahonBtn).toBeTruthy();
+
+        fireEvent.click(peraBtn);
+        expect(onChoosePera).toHaveBeenCalled();
+
+        fireEvent.click(kahonBtn);
+        expect(onChooseKahon).toHaveBeenCalled();
+      });
+
+      it('reflects Pera choice and outcome on Finalist’s phone', () => {
+        const state = aFinaleShow({
+          finale: {
+            choice: 'pera',
+            drawnPrizeId: Pera.id,
+            revealed: true,
+          },
+        });
+
+        render(finalePhone({ state, me: p1 }));
+
+        expect(screen.getByText(copy.player.peraSelected)).toBeTruthy();
+        expect(screen.getByText(copy.player.finalistResult(Pera.label, peso(Pera.value)))).toBeTruthy();
+      });
+
+      it('reflects Kahon choice and waiting state before reveal, and outcome once revealed', () => {
+        const drawnPrize = kahonTable[2]!; // Sandwich at tubig
+        const unrevealedState = aFinaleShow({
+          finale: {
+            choice: 'kahon',
+            drawnPrizeId: drawnPrize.id,
+            revealed: false,
+          },
+        });
+
+        const { rerender } = render(finalePhone({ state: unrevealedState, me: p1 }));
+        expect(screen.getByText(copy.player.kahonSelected)).toBeTruthy();
+        expect(screen.queryByText(new RegExp(drawnPrize.label))).toBeNull();
+
+        const revealedState = aFinaleShow({
+          finale: {
+            choice: 'kahon',
+            drawnPrizeId: drawnPrize.id,
+            revealed: true,
+          },
+        });
+
+        rerender(finalePhone({ state: revealedState, me: p1 }));
+        expect(screen.getByText(copy.player.finalistResult(drawnPrize.label, peso(drawnPrize.value)))).toBeTruthy();
+      });
+
+      it('reflects Bokya outcome on Finalist’s phone when Bokya is drawn', () => {
+        const state = aFinaleShow({
+          finale: {
+            choice: 'kahon',
+            drawnPrizeId: Bokya.id,
+            revealed: true,
+          },
+        });
+
+        render(finalePhone({ state, me: p1 }));
+        expect(screen.getByText(copy.player.finalistBokya)).toBeTruthy();
+      });
+
+      it('tells non-finalist players to watch the Stage for the finale', () => {
+        const state = aFinaleShow({
+          finale: {
+            choice: null,
+            drawnPrizeId: null,
+            revealed: false,
+          },
+        });
+
+        render(finalePhone({ state, me: p2 }));
+        expect(screen.getByText(copy.player.notFinalist)).toBeTruthy();
+        expect(screen.queryByRole('button', { name: copy.player.kahonButton })).toBeNull();
+      });
     });
   });
 });

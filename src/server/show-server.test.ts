@@ -9,7 +9,9 @@ import { reachableHost } from './address.ts';
 import type { ServerMessage, ClientMessage } from '../shared/protocol.ts';
 import type { ShownState, JoinOutcome } from '../game/machine.ts';
 import { copy, showConfig } from '../content/show.ts';
-import { cullQuestions } from '../content/questions.ts';
+import { cullQuestions, boutQuestions } from '../content/questions.ts';
+import { Pera } from '../content/prizes.ts';
+import type { GameEvent } from '../game/events.ts';
 
 const aTempLog = () => join(mkdtempSync(join(tmpdir(), 'wowolwin-')), 'event-log.json');
 
@@ -391,6 +393,7 @@ describe('one question, answered and revealed', () => {
         'answer',
         'asked',
         'bracket',
+        'finale',
         'phase',
         'question',
         'roster',
@@ -791,6 +794,190 @@ describe('the show at room scale', () => {
         for (const s of live) s.drop();
       }
     });
+  });
+});
+
+describe('the finale (Pera o Kahon)', () => {
+  const SILENCE = 100;
+  async function assertSilence(s: ReturnType<typeof surface>, timeout = SILENCE) {
+    const outcome = await Promise.race([
+      s.next('state').then((msg) => msg),
+      new Promise<'nothing'>((r) => setTimeout(() => r('nothing'), timeout)),
+    ]);
+    s.drain();
+    expect(outcome).toBe('nothing');
+  }
+
+  const crownedSeedLog: GameEvent[] = [
+    { type: 'playerJoined', playerId: 'p1', name: 'Ana' },
+    { type: 'playerJoined', playerId: 'p2', name: 'Ben' },
+    { type: 'showStarted' },
+    { type: 'questionPresented', questionId: cullQuestions[0]!.id, at: 1000 },
+    { type: 'answerSubmitted', playerId: 'p1', optionId: cullQuestions[0]!.correctOptionId },
+    { type: 'answerWindowClosed' },
+    { type: 'revealTriggered' },
+    { type: 'bracketSeeded', entrants: ['p1', 'p2'] },
+    { type: 'questionPresented', questionId: boutQuestions[0]!.id, at: 2000 },
+    { type: 'answerSubmitted', playerId: 'p1', optionId: boutQuestions[0]!.correctOptionId },
+    { type: 'answerWindowClosed' },
+    { type: 'revealTriggered' },
+  ];
+
+  it('allows Presenter to start the finale and ignores non-presenter attempts', async () => {
+    await withServer(async (port) => {
+      const presenter = surface(port);
+      const finalist = surface(port);
+      const other = surface(port);
+      const live = [presenter, finalist, other];
+      try {
+        await Promise.all(live.map((s) => s.ready));
+        await Promise.all(live.map((s) => s.next('state')));
+
+        finalist.send({ kind: 'join', token: 'p1' });
+        await finalist.next('joinAck');
+        await Promise.all(live.map((s) => s.next('state')));
+
+        other.send({ kind: 'join', token: 'p2' });
+        await other.next('joinAck');
+        await Promise.all(live.map((s) => s.next('state')));
+
+        // A Player phone attempts to start finale: should be ignored
+        presenter.drain();
+        finalist.drain();
+        other.drain();
+        finalist.send({ kind: 'startFinale' });
+        await assertSilence(presenter);
+
+        other.send({ kind: 'startFinale' });
+        await assertSilence(presenter);
+
+        // Presenter starts finale: state broadcast with finale initialized
+        presenter.send({ kind: 'startFinale' });
+        const nextState = (await presenter.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+        expect(nextState.state.finale).toEqual({
+          choice: null,
+          drawnPrizeId: null,
+          revealed: false,
+        });
+      } finally {
+        for (const s of live) s.drop();
+      }
+    }, crownedSeedLog);
+  });
+
+  it('allows Finalist phone or Presenter to choose Pera, and ignores non-finalist phones', async () => {
+    const finaleStartedLog: GameEvent[] = [
+      ...crownedSeedLog,
+      { type: 'finaleStarted' },
+    ];
+
+    await withServer(async (port) => {
+      const presenter = surface(port);
+      const finalist = surface(port);
+      const other = surface(port);
+      const live = [presenter, finalist, other];
+      try {
+        await Promise.all(live.map((s) => s.ready));
+        await Promise.all(live.map((s) => s.next('state')));
+
+        finalist.send({ kind: 'join', token: 'p1' });
+        await finalist.next('joinAck');
+        await Promise.all(live.map((s) => s.next('state')));
+
+        other.send({ kind: 'join', token: 'p2' });
+        await other.next('joinAck');
+        await Promise.all(live.map((s) => s.next('state')));
+
+        // Non-finalist attempts to choose Pera: ignored
+        presenter.drain();
+        finalist.drain();
+        other.drain();
+        other.send({ kind: 'choosePera' });
+        await assertSilence(presenter);
+
+        // Finalist chooses Pera: resolves to guaranteed Pera prize
+        finalist.send({ kind: 'choosePera' });
+        const chosenState = (await presenter.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+        expect(chosenState.state.finale).toEqual({
+          choice: 'pera',
+          drawnPrizeId: Pera.id,
+          revealed: true,
+        });
+      } finally {
+        for (const s of live) s.drop();
+      }
+    }, finaleStartedLog);
+
+    // Also verify Presenter can choose Pera on finalist's behalf
+    await withServer(async (port) => {
+      const presenter = surface(port);
+      try {
+        await presenter.ready;
+        await presenter.next('state');
+
+        presenter.send({ kind: 'choosePera' });
+        const chosenState = (await presenter.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+        expect(chosenState.state.finale?.choice).toBe('pera');
+        expect(chosenState.state.finale?.drawnPrizeId).toBe(Pera.id);
+      } finally {
+        presenter.drop();
+      }
+    }, finaleStartedLog);
+  });
+
+  it('allows Finalist phone or Presenter to choose Kahon, keeps drawn prize hidden until operator reveals it', async () => {
+    const finaleStartedLog: GameEvent[] = [
+      ...crownedSeedLog,
+      { type: 'finaleStarted' },
+    ];
+
+    await withServer(async (port) => {
+      const presenter = surface(port);
+      const finalist = surface(port);
+      const other = surface(port);
+      const live = [presenter, finalist, other];
+      try {
+        await Promise.all(live.map((s) => s.ready));
+        await Promise.all(live.map((s) => s.next('state')));
+
+        finalist.send({ kind: 'join', token: 'p1' });
+        await finalist.next('joinAck');
+        await Promise.all(live.map((s) => s.next('state')));
+
+        other.send({ kind: 'join', token: 'p2' });
+        await other.next('joinAck');
+        await Promise.all(live.map((s) => s.next('state')));
+
+        // Non-finalist cannot choose Kahon
+        presenter.drain();
+        other.send({ kind: 'chooseKahon' });
+        await assertSilence(presenter);
+
+        // Finalist chooses Kahon: drawn prize set, revealed is false
+        finalist.send({ kind: 'chooseKahon' });
+        const drawnState = (await presenter.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+        expect(drawnState.state.finale?.choice).toBe('kahon');
+        expect(drawnState.state.finale?.drawnPrizeId).not.toBeNull();
+        expect(drawnState.state.finale?.revealed).toBe(false);
+
+        // Non-presenter cannot trigger revealKahon
+        finalist.drain();
+        presenter.drain();
+        other.drain();
+        finalist.send({ kind: 'revealKahon' });
+        await assertSilence(presenter);
+
+        other.send({ kind: 'revealKahon' });
+        await assertSilence(presenter);
+
+        // Presenter triggers revealKahon: revealed becomes true
+        presenter.send({ kind: 'revealKahon' });
+        const revealedState = (await presenter.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+        expect(revealedState.state.finale?.revealed).toBe(true);
+      } finally {
+        for (const s of live) s.drop();
+      }
+    }, finaleStartedLog);
   });
 });
 

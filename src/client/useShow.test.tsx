@@ -195,6 +195,7 @@ describe('the answer window over the socket', () => {
           answer: null,
           simulation: { armed: false, mode: 'mixed' },
           bracket: null,
+          finale: null,
         },
       }),
     );

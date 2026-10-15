@@ -29,6 +29,8 @@ function App() {
         answerNote={show.answerNote}
         onJoin={show.join}
         onSubmitAnswer={show.submitAnswer}
+        onChoosePera={show.choosePera}
+        onChooseKahon={show.chooseKahon}
       />
     );
   }
@@ -45,6 +47,14 @@ function App() {
       onClearSimulated={show.clearSimulated}
       onSimulateAnswers={show.simulateAnswers}
       onSetSimulation={show.setSimulation}
+      onTrimCull={show.trimCull}
+      onSeedBracket={show.seedBracket}
+      onRerunBout={show.rerunBout}
+      onReverseElimination={show.reverseElimination}
+      onStartFinale={show.startFinale}
+      onChoosePera={show.choosePera}
+      onChooseKahon={show.chooseKahon}
+      onRevealKahon={show.revealKahon}
     />
   );
 }

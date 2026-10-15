@@ -21,12 +21,23 @@ export type Sound = {
  * having moved — and it is why pressing the reveal twice cannot sting twice,
  * and a Backbone that reloads cannot replay the reveal.
  */
-export function cuesBetween(before: { phase: string }, after: { phase: string }): Cue[] {
+export function cuesBetween(
+  before: { phase: string; finale?: { revealed: boolean; drawnPrizeId: string | null } | null },
+  after: { phase: string; finale?: { revealed: boolean; drawnPrizeId: string | null } | null },
+): Cue[] {
   const cues: Cue[] = [];
 
   if (after.phase === 'answering' && before.phase !== 'answering') cues.push('tick');
   if (after.phase === 'revealPending' && before.phase !== 'revealPending') cues.push('sting');
   if (after.phase === 'revealed' && before.phase !== 'revealed') cues.push('reveal');
+
+  if (after.finale?.revealed && !before.finale?.revealed) {
+    if (after.finale.drawnPrizeId === 'bokya') {
+      cues.push('bokya');
+    } else {
+      cues.push('reveal');
+    }
+  }
 
   return cues;
 }

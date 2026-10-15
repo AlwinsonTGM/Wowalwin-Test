@@ -18,7 +18,12 @@ export type ClientMessage =
   | { kind: 'trimCull'; survivorIds: string[] }
   | { kind: 'seedBracket'; seed?: number }
   | { kind: 'rerunBout' }
-  | { kind: 'reverseElimination'; playerId: string };
+  | { kind: 'reverseElimination'; playerId: string }
+  /** Ticket 05: Pera o Kahon finale */
+  | { kind: 'startFinale'; seed?: number }
+  | { kind: 'choosePera' }
+  | { kind: 'chooseKahon'; seed?: number }
+  | { kind: 'revealKahon' };
 
 /** What the server tells every surface. */
 export type ServerMessage =

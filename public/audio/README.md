@@ -10,9 +10,7 @@ question, a reveal, or the show.
 | `tick.mp3` | Every second while the answer window is open | The clock the room hears. Short, dry, no melody. |
 | `sting.mp3` | The moment the answer window closes | The suspense beat. It has to cut through a classroom. |
 | `reveal.mp3` | The moment the Presenter reveals | The payoff. Must be clearly distinct from the sting. |
-
-The Kahon and Bokya sounds arrive with the finale (ticket 05) and will be added
-here with their own rows.
+| `bokya.mp3` | The moment Bokya is revealed in the Kahon | The losing sound. Distinct from the win reveal. |
 
 Names and paths are declared in `src/content/show.ts` under `showConfig.audio`,
 so a file with another name only needs that one line changed.

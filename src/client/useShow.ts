@@ -35,6 +35,7 @@ export function useShow() {
     answer: null,
     simulation: { armed: false, mode: 'mixed' },
     bracket: null,
+    finale: null,
   });
   /** undefined until the server says; null once it has said there is none. */
   const [joinHost, setJoinHost] = useState<string | null | undefined>(undefined);
@@ -132,6 +133,11 @@ export function useShow() {
     seedBracket: (seed?: number) => send({ kind: 'seedBracket', seed }),
     rerunBout: () => send({ kind: 'rerunBout' }),
     reverseElimination: (playerId: string) => send({ kind: 'reverseElimination', playerId }),
+    /** Finale actions (ticket 05) */
+    startFinale: (seed?: number) => send({ kind: 'startFinale', seed }),
+    choosePera: () => send({ kind: 'choosePera' }),
+    chooseKahon: (seed?: number) => send({ kind: 'chooseKahon', seed }),
+    revealKahon: () => send({ kind: 'revealKahon' }),
     /** The show's own words for how this phone's last submission went. */
     answerNote: answerAck === null ? null : copy.player.answer[answerAck],
   };

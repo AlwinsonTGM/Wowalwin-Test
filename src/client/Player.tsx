@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { copy, showConfig } from '../content/show.ts';
+import { Pera, Bokya, findPrize, peso } from '../content/prizes.ts';
 import { activeBout, isPlayerInCurrentBout, type Player as RosterPlayer, type ShownState } from '../game/machine.ts';
 import type { Connection } from './useShow.ts';
 import { useSecondsLeft } from './clock.ts';
@@ -15,6 +16,8 @@ export function Player({
   answerNote,
   onJoin,
   onSubmitAnswer,
+  onChoosePera,
+  onChooseKahon,
 }: {
   state: ShownState;
   me: RosterPlayer | null;
@@ -24,6 +27,8 @@ export function Player({
   answerNote: string | null;
   onJoin: (name: string) => void;
   onSubmitAnswer: (optionId: string) => void;
+  onChoosePera?: () => void;
+  onChooseKahon?: (seed?: number) => void;
 }) {
   const [name, setName] = useState('');
 
@@ -38,7 +43,9 @@ export function Player({
   const isWaitingInBracket = me !== null && isBout && me.standing === 'in' && !inBout;
   const isEntrant = isBout && me !== null && (state.bracket?.bouts.some((b) => b.player1Id === me.id || b.player2Id === me.id) ?? false);
   const lostBout = isBout && me !== null && me.standing === 'out' && isEntrant;
-  const isFinalist = isBout && me !== null && state.bracket?.finalistId === me.id;
+  const finale = state.finale ?? null;
+  const isFinalist = Boolean(isBout && me !== null && state.bracket?.finalistId === me.id);
+  const inFinale = Boolean(finale);
   const wonBout = inBout && state.phase === 'revealed' && currentBout?.winnerId === me?.id;
   const tiedBout = inBout && state.phase === 'revealed' && currentBout?.winnerId === null && state.answer !== null;
 
@@ -46,7 +53,7 @@ export function Player({
   const open = state.phase === 'answering';
   const seconds = useSecondsLeft(open && question ? question.askedAt : null);
   const playing = me !== null && me.standing === 'in' && (!isBout || inBout);
-  const showQuestion = question !== null && (isBout ? inBout : (me !== null || refusal !== null));
+  const showQuestion = !inFinale && question !== null && (isBout ? inBout : (me !== null || refusal !== null));
 
   return (
     <main className="surface surface--player">
@@ -75,17 +82,66 @@ export function Player({
         </form>
       )}
 
-      {isWaitingInBracket && <p className="waiting">{copy.player.waitingForTurn}</p>}
+      {isWaitingInBracket && !inFinale && <p className="waiting">{copy.player.waitingForTurn}</p>}
 
-      {lostBout && <p className="refused">{copy.player.boutLost}</p>}
+      {lostBout && !inFinale && <p className="refused">{copy.player.boutLost}</p>}
 
-      {me?.standing === 'out' && !lostBout && <p className="refused">{copy.player.eliminated}</p>}
+      {me?.standing === 'out' && !lostBout && !inFinale && <p className="refused">{copy.player.eliminated}</p>}
 
-      {isFinalist && <p className="won">{copy.stage.finalist(me.name)}</p>}
+      {isFinalist && !inFinale && me && <p className="won">{copy.stage.finalist(me.name)}</p>}
 
-      {wonBout && !isFinalist && <p className="won">{copy.player.boutWon}</p>}
+      {wonBout && !isFinalist && !inFinale && <p className="won">{copy.player.boutWon}</p>}
 
-      {tiedBout && <p className="warning">{copy.stage.tieNoSubmissions}</p>}
+      {tiedBout && !inFinale && <p className="warning">{copy.stage.tieNoSubmissions}</p>}
+
+      {/* Pera o Kahon finale flow on Player phone (Ticket 05) */}
+      {finale && (
+        !isFinalist ? (
+          <p className="waiting">{copy.player.notFinalist}</p>
+        ) : (
+          finale.choice === null ? (
+            <section className="finale-choice">
+              <p className="prompt">{copy.player.finalePrompt}</p>
+              <div className="options">
+                <button
+                  type="button"
+                  onClick={onChoosePera}
+                >
+                  {copy.player.peraButton(peso(Pera.value))}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChooseKahon?.()}
+                >
+                  {copy.player.kahonButton}
+                </button>
+              </div>
+            </section>
+          ) : finale.choice === 'pera' ? (
+            <div className="finale-result">
+              <p className="won">{copy.player.peraSelected}</p>
+              <p className="prize-callout">{copy.player.finalistResult(Pera.label, peso(Pera.value))}</p>
+            </div>
+          ) : (
+            !finale.revealed ? (
+              <div className="finale-waiting">
+                <p className="waiting">{copy.player.kahonSelected}</p>
+              </div>
+            ) : (
+              <div className="finale-result">
+                {finale.drawnPrizeId === Bokya.id ? (
+                  <p className="refused">{copy.player.finalistBokya}</p>
+                ) : (() => {
+                  const prize = finale.drawnPrizeId ? findPrize(finale.drawnPrizeId) : null;
+                  return prize ? (
+                    <p className="won">{copy.player.finalistResult(prize.label, peso(prize.value))}</p>
+                  ) : null;
+                })()}
+              </div>
+            )
+          )
+        )
+      )}
 
       {showQuestion && (
         <section className="question">

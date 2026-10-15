@@ -19,6 +19,10 @@ import {
   planSimulatePlayers,
   planSubmitAnswer,
   planTrimCull,
+  planStartFinale,
+  planChoosePera,
+  planChooseKahon,
+  planRevealKahon,
   shown,
 } from '../game/machine.ts';
 import type { GameEvent, SimulationMode } from '../game/events.ts';
@@ -65,6 +69,14 @@ const parse = (raw: RawData): ClientMessage | null => {
     if (message?.kind === 'reverseElimination' && typeof message.playerId === 'string') {
       return { kind: 'reverseElimination', playerId: message.playerId };
     }
+    if (message?.kind === 'startFinale') {
+      return { kind: 'startFinale', seed: typeof message.seed === 'number' ? message.seed : undefined };
+    }
+    if (message?.kind === 'choosePera') return { kind: 'choosePera' };
+    if (message?.kind === 'chooseKahon') {
+      return { kind: 'chooseKahon', seed: typeof message.seed === 'number' ? message.seed : undefined };
+    }
+    if (message?.kind === 'revealKahon') return { kind: 'revealKahon' };
     if (message?.kind !== 'join') return null;
 
     const name = typeof message.name === 'string' ? message.name : undefined;
@@ -305,6 +317,36 @@ export async function startShowServer({
         if (!isPresenter) return;
         const plan = planReverseElimination(state, message.playerId);
         if (plan.outcome === 'reversed') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'startFinale') {
+        if (!isPresenter) return;
+        const plan = planStartFinale(state, message.seed);
+        if (plan.outcome === 'started') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'choosePera') {
+        const isFinalist = playerId !== undefined && state.bracket?.finalistId === playerId;
+        if (!isPresenter && !isFinalist) return;
+        const plan = planChoosePera(state);
+        if (plan.outcome === 'chosen') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'chooseKahon') {
+        const isFinalist = playerId !== undefined && state.bracket?.finalistId === playerId;
+        if (!isPresenter && !isFinalist) return;
+        const plan = planChooseKahon(state, message.seed);
+        if (plan.outcome === 'drawn') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'revealKahon') {
+        if (!isPresenter) return;
+        const plan = planRevealKahon(state);
+        if (plan.outcome === 'revealed') record(plan.event);
         return;
       }
 

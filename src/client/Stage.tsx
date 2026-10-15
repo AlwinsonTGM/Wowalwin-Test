@@ -1,4 +1,5 @@
 import { copy } from '../content/show.ts';
+import { Pera, Bokya, findPrize, peso, hasPlaceholderPrizes } from '../content/prizes.ts';
 import { activeBout, type ShownState } from '../game/machine.ts';
 import { useSecondsLeft } from './clock.ts';
 
@@ -19,12 +20,13 @@ export function Stage({ state, joinUrl }: { state: ShownState; joinUrl: string |
   const boutWinner = isBout && currentBout?.winnerId
     ? state.roster.find((p) => p.id === currentBout.winnerId)
     : null;
+  const finale = state.finale ?? null;
 
   return (
     <main className="surface surface--stage">
       <h1>{copy.stage.title}</h1>
 
-      {question !== null && (
+      {question !== null && finale === null && (
         <section className="question">
           {isBout && currentBout ? (
             <div className="bout-meta">
@@ -80,7 +82,7 @@ export function Stage({ state, joinUrl }: { state: ShownState; joinUrl: string |
         </section>
       )}
 
-      {question === null && joinUrl !== undefined && !isBout && (
+      {question === null && finale === null && joinUrl !== undefined && !isBout && (
         <section className="join">
           <h2>{copy.stage.joinHeading}</h2>
           {joinUrl ? (
@@ -95,8 +97,67 @@ export function Stage({ state, joinUrl }: { state: ShownState; joinUrl: string |
         </section>
       )}
 
-      {/* When bracket is active, show the surviving bracket throughout */}
-      {isBout && state.bracket ? (
+      {/* Pera o Kahon finale view (Ticket 05) */}
+      {finale !== null ? (
+        <section className="finale-view">
+          <h2>{copy.stage.finaleHeading}</h2>
+          {hasPlaceholderPrizes() && <p className="warning">{copy.stage.placeholderWarning}</p>}
+          {(() => {
+            const finalist = state.roster.find((p) => p.id === state.bracket?.finalistId);
+            const finalistName = finalist?.name ?? '';
+
+            if (finale.choice === null) {
+              return (
+                <div className="finale-choice-stage">
+                  <p className="finalist-prompt">{copy.stage.finalistPrompt(finalistName)}</p>
+                  <div className="finale-options">
+                    <div className="finale-option finale-option--pera">
+                      <h3>{copy.stage.peraOption(peso(Pera.value))}</h3>
+                    </div>
+                    <div className="finale-option finale-option--kahon">
+                      <h3>{copy.stage.kahonOption}</h3>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            if (finale.choice === 'pera') {
+              return (
+                <div className="finale-result finale-result--pera">
+                  <p className="choice-callout">{copy.stage.peraChosen(finalistName)}</p>
+                  <p className="winner-callout">{copy.stage.wonPrize(Pera.label, peso(Pera.value))}</p>
+                </div>
+              );
+            }
+
+            if (finale.choice === 'kahon') {
+              const prize = finale.drawnPrizeId ? findPrize(finale.drawnPrizeId) : null;
+              if (!finale.revealed) {
+                return (
+                  <div className="finale-suspense">
+                    <p className="choice-callout">{copy.stage.kahonChosen(finalistName)}</p>
+                    <p className="opening-callout">{copy.stage.kahonOpening}</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="finale-result finale-result--kahon">
+                  <p className="choice-callout">{copy.stage.kahonChosen(finalistName)}</p>
+                  {prize?.id === Bokya.id ? (
+                    <p className="winner-callout is-bokya">{copy.stage.wonBokya} ({peso(0)})</p>
+                  ) : prize ? (
+                    <p className="winner-callout">{copy.stage.wonPrize(prize.label, peso(prize.value))}</p>
+                  ) : null}
+                </div>
+              );
+            }
+
+            return null;
+          })()}
+        </section>
+      ) : isBout && state.bracket ? (
         <section className="bracket-view">
           <h2>{copy.stage.bracketHeading}</h2>
           {state.bracket.finalistId && (

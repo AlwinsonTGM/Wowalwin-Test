@@ -43,6 +43,7 @@ const aState = (phase: ShownState['phase']): ShownState => ({
   answer: null,
   simulation: { armed: false, mode: 'mixed' },
   bracket: null,
+  finale: null,
 });
 
 function Presenter({ state, expose }: { state: ShownState; expose?: (api: ReturnType<typeof useShowSound>) => void }) {
@@ -123,6 +124,36 @@ describe('the sound the show makes by itself', () => {
     render(at('revealed'));
 
     expect(heard).toEqual([]);
+  });
+
+  it('sounds bokya when Bokya is revealed in the finale', () => {
+    const unrevealedState: ShownState = {
+      ...aState('started'),
+      finale: { choice: 'kahon', drawnPrizeId: 'bokya', revealed: false },
+    };
+    const revealedState: ShownState = {
+      ...aState('started'),
+      finale: { choice: 'kahon', drawnPrizeId: 'bokya', revealed: true },
+    };
+    const { rerender } = render(<Presenter state={unrevealedState} />);
+    rerender(<Presenter state={revealedState} />);
+
+    expect(heard).toEqual(['bokya']);
+  });
+
+  it('sounds reveal when a winning prize is revealed in the finale', () => {
+    const unrevealedState: ShownState = {
+      ...aState('started'),
+      finale: { choice: 'kahon', drawnPrizeId: 'kahon-1', revealed: false },
+    };
+    const revealedState: ShownState = {
+      ...aState('started'),
+      finale: { choice: 'kahon', drawnPrizeId: 'kahon-1', revealed: true },
+    };
+    const { rerender } = render(<Presenter state={unrevealedState} />);
+    rerender(<Presenter state={revealedState} />);
+
+    expect(heard).toEqual(['reveal']);
   });
 });
 

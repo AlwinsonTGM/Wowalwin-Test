@@ -19,6 +19,11 @@ import {
   planSimulatePlayers,
   planSubmitAnswer,
   planTrimCull,
+  drawKahonPrize,
+  planStartFinale,
+  planChoosePera,
+  planChooseKahon,
+  planRevealKahon,
   questionsLeft,
   secondsLeft,
   shown,
@@ -27,6 +32,7 @@ import {
 import type { GameEvent, SimulationMode } from './events.ts';
 import { showConfig, simulatedName } from '../content/show.ts';
 import { boutQuestions, cullQuestions, forPresenter } from '../content/questions.ts';
+import { Pera, Bokya, kahonTable, findPrize, peso } from '../content/prizes.ts';
 
 const aPlayer = (id: string, name: string): GameEvent => ({ type: 'playerJoined', playerId: id, name });
 const showStarted: GameEvent = { type: 'showStarted' };
@@ -63,6 +69,7 @@ describe('the roster', () => {
       sealed: [],
       simulation: { armed: false, mode: 'mixed' },
       bracket: null,
+      finale: null,
     });
   });
 
@@ -191,6 +198,7 @@ describe('the event log', () => {
       sealed: [],
       simulation: { armed: false, mode: 'mixed' },
       bracket: null,
+      finale: null,
     });
   });
 
@@ -300,6 +308,7 @@ describe('an answer arriving', () => {
       'answer',
       'asked',
       'bracket',
+      'finale',
       'phase',
       'question',
       'roster',
@@ -1263,6 +1272,205 @@ describe('the bracket', () => {
       expect(resetBout.winnerId).toBeNull();
       // Active bout points back to Bout 1
       expect(activeBout(reversed)?.id).toBe(bout.id);
+    });
+  });
+
+  describe('Pera o Kahon (Ticket 05 finale)', () => {
+    const setupFinalist = () => {
+      const crownedLog: GameEvent[] = [
+        aPlayer('p1', 'Ana'),
+        aPlayer('p2', 'Ben'),
+        showStarted,
+        firstQuestion(),
+        submits('p1', questionOne.correctOptionId),
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+        { type: 'bracketSeeded', entrants: ['p1', 'p2'] },
+        { type: 'questionPresented', questionId: boutQuestions[0]!.id, at: 2000 },
+        submits('p1', boutQuestions[0]!.correctOptionId),
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+      ];
+      const crownedState = fold(crownedLog);
+      return { crownedLog, crownedState };
+    };
+
+    it('requires a crowned Finalist to start the finale', () => {
+      const unstarted = fold([aPlayer('p1', 'Ana'), showStarted]);
+      expect(planStartFinale(unstarted).outcome).toBe('noFinalist');
+
+      const { crownedLog, crownedState } = setupFinalist();
+      expect(crownedState.bracket?.finalistId).toBe('p1');
+
+      const startPlan = planStartFinale(crownedState);
+      expect(startPlan.outcome).toBe('started');
+      if (startPlan.outcome !== 'started') return;
+
+      const finaleState = fold([...crownedLog, startPlan.event]);
+      expect(planStartFinale(finaleState).outcome).toBe('alreadyStarted');
+    });
+
+    it('offers the Finalist a clear choice between Pera and Kahon', () => {
+      const { crownedState } = setupFinalist();
+      const startPlan = planStartFinale(crownedState);
+      if (startPlan.outcome !== 'started') throw new Error('finale failed to start');
+
+      const stateInFinale = fold([...crownedState.roster.map((p) => aPlayer(p.id, p.name)), showStarted, startPlan.event]);
+      expect(stateInFinale.finale).not.toBeNull();
+      expect(stateInFinale.finale!.choice).toBeNull();
+      expect(stateInFinale.finale!.drawnPrizeId).toBeNull();
+      expect(stateInFinale.finale!.revealed).toBe(false);
+    });
+
+    it('resolves choosing Pera to the fixed small guaranteed voucher', () => {
+      const { crownedState } = setupFinalist();
+      const startPlan = planStartFinale(crownedState);
+      if (startPlan.outcome !== 'started') throw new Error('finale failed to start');
+
+      const stateInFinale = fold([...crownedState.roster.map((p) => aPlayer(p.id, p.name)), showStarted, startPlan.event]);
+
+      const choosePeraPlan = planChoosePera(stateInFinale);
+      expect(choosePeraPlan.outcome).toBe('chosen');
+      if (choosePeraPlan.outcome !== 'chosen') return;
+
+      const peraState = fold([
+        ...crownedState.roster.map((p) => aPlayer(p.id, p.name)),
+        showStarted,
+        startPlan.event,
+        choosePeraPlan.event,
+      ]);
+
+      expect(peraState.finale!.choice).toBe('pera');
+      expect(peraState.finale!.drawnPrizeId).toBe(Pera.id);
+      expect(peraState.finale!.revealed).toBe(true);
+
+      const prize = findPrize(peraState.finale!.drawnPrizeId!);
+      expect(prize).toEqual(Pera);
+      expect(prize!.value).toBe(50);
+      expect(peso(prize!.value)).toBe('₱50');
+
+      expect(planChoosePera(peraState).outcome).toBe('alreadyChosen');
+      expect(planChooseKahon(peraState).outcome).toBe('alreadyChosen');
+    });
+
+    it('draws from kahonTable using an injected generator rather than an unseeded random source', () => {
+      const { crownedState } = setupFinalist();
+      const startPlan = planStartFinale(crownedState);
+      if (startPlan.outcome !== 'started') throw new Error('finale failed to start');
+
+      const stateInFinale = fold([...crownedState.roster.map((p) => aPlayer(p.id, p.name)), showStarted, startPlan.event]);
+
+      const choosePlan1 = planChooseKahon(stateInFinale, () => 0.0);
+      expect(choosePlan1.outcome).toBe('drawn');
+      if (choosePlan1.outcome !== 'drawn') return;
+      expect(choosePlan1.event.prizeId).toBe(kahonTable[0]!.id);
+
+      const expectedIndex = Math.floor(0.5 * kahonTable.length);
+      const choosePlan2 = planChooseKahon(stateInFinale, () => 0.5);
+      expect(choosePlan2.outcome).toBe('drawn');
+      if (choosePlan2.outcome !== 'drawn') return;
+      expect(choosePlan2.event.prizeId).toBe(kahonTable[expectedIndex]!.id);
+    });
+
+    it('reproduces the exact same draw on every run with a pinned seed', () => {
+      const { crownedState } = setupFinalist();
+      const startPlan = planStartFinale(crownedState);
+      if (startPlan.outcome !== 'started') throw new Error('finale failed to start');
+
+      const stateInFinale = fold([...crownedState.roster.map((p) => aPlayer(p.id, p.name)), showStarted, startPlan.event]);
+
+      const SEED = 98765;
+      const planA = planChooseKahon(stateInFinale, SEED);
+      const planB = planChooseKahon(stateInFinale, SEED);
+
+      expect(planA.outcome).toBe('drawn');
+      expect(planB.outcome).toBe('drawn');
+      if (planA.outcome !== 'drawn' || planB.outcome !== 'drawn') return;
+
+      expect(planA.event.prizeId).toBe(planB.event.prizeId);
+      expect(planA.event.seed).toBe(SEED);
+    });
+
+    it('makes Bokya reachable as a genuine outcome from the table', () => {
+      const { crownedState } = setupFinalist();
+      const startPlan = planStartFinale(crownedState);
+      if (startPlan.outcome !== 'started') throw new Error('finale failed to start');
+
+      const stateInFinale = fold([...crownedState.roster.map((p) => aPlayer(p.id, p.name)), showStarted, startPlan.event]);
+
+      const bokyaPlan = planChooseKahon(stateInFinale, () => 0.95);
+      expect(bokyaPlan.outcome).toBe('drawn');
+      if (bokyaPlan.outcome !== 'drawn') return;
+
+      expect(bokyaPlan.event.prizeId).toBe(Bokya.id);
+      const prize = findPrize(bokyaPlan.event.prizeId);
+      expect(prize).toEqual(Bokya);
+      expect(prize!.value).toBe(0);
+    });
+
+    it('keeps the drawn prize unrevealed until the operator triggers the reveal', () => {
+      const { crownedState } = setupFinalist();
+      const startPlan = planStartFinale(crownedState);
+      if (startPlan.outcome !== 'started') throw new Error('finale failed to start');
+
+      const stateInFinale = fold([...crownedState.roster.map((p) => aPlayer(p.id, p.name)), showStarted, startPlan.event]);
+      const drawPlan = planChooseKahon(stateInFinale, () => 0.2);
+      if (drawPlan.outcome !== 'drawn') throw new Error('draw failed');
+
+      const drawnState = fold([
+        ...crownedState.roster.map((p) => aPlayer(p.id, p.name)),
+        showStarted,
+        startPlan.event,
+        drawPlan.event,
+      ]);
+
+      expect(drawnState.finale!.drawnPrizeId).toBe(drawPlan.event.prizeId);
+      expect(drawnState.finale!.revealed).toBe(false);
+
+      const revealPlan = planRevealKahon(drawnState);
+      expect(revealPlan.outcome).toBe('revealed');
+      if (revealPlan.outcome !== 'revealed') return;
+
+      const revealedState = fold([
+        ...crownedState.roster.map((p) => aPlayer(p.id, p.name)),
+        showStarted,
+        startPlan.event,
+        drawPlan.event,
+        revealPlan.event,
+      ]);
+
+      expect(revealedState.finale!.revealed).toBe(true);
+      expect(planRevealKahon(revealedState).outcome).toBe('alreadyRevealed');
+    });
+
+    it('reconstructs the entire finale deterministically from the pure event log', () => {
+      const log: GameEvent[] = [
+        aPlayer('p1', 'Ana'),
+        aPlayer('p2', 'Ben'),
+        showStarted,
+        firstQuestion(),
+        submits('p1', questionOne.correctOptionId),
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+        { type: 'bracketSeeded', entrants: ['p1', 'p2'] },
+        { type: 'questionPresented', questionId: boutQuestions[0]!.id, at: 2000 },
+        submits('p1', boutQuestions[0]!.correctOptionId),
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+        { type: 'finaleStarted' },
+        { type: 'kahonDrawn', prizeId: 'kahon-4' },
+        { type: 'kahonRevealed' },
+      ];
+
+      const finalState = fold(log);
+      expect(finalState.finale).toEqual({
+        choice: 'kahon',
+        drawnPrizeId: 'kahon-4',
+        revealed: true,
+      });
+      const prize = findPrize(finalState.finale!.drawnPrizeId!);
+      expect(prize!.label).toBe('Isang libre para sa merienda');
+      expect(prize!.value).toBe(100);
     });
   });
 });

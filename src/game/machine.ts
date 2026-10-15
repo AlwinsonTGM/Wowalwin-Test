@@ -1,6 +1,7 @@
 import type { GameEvent, SimulationMode } from './events.ts';
 import { findQuestion, questionsIn, type PoolName, type Question } from '../content/questions.ts';
 import { showConfig, simulatedName } from '../content/show.ts';
+import { Pera, kahonTable, type Prize } from '../content/prizes.ts';
 
 export type Player = {
   id: string;
@@ -59,6 +60,15 @@ export type BracketState = {
   seed?: number;
 };
 
+export type FinaleChoice = 'pera' | 'kahon';
+
+export type FinaleState = {
+  choice: FinaleChoice | null;
+  drawnPrizeId: string | null;
+  revealed: boolean;
+  seed?: number;
+};
+
 export type GameState = {
   phase: Phase;
   roster: Player[];
@@ -82,6 +92,8 @@ export type GameState = {
   simulation: { armed: boolean; mode: SimulationMode };
   /** Ticket 04: The Bracket single-elimination tournament */
   bracket: BracketState | null;
+  /** Ticket 05: The Pera o Kahon finale */
+  finale: FinaleState | null;
 };
 
 /** What a surface is given: the same state, minus the room's secret. */
@@ -566,6 +578,52 @@ export function fold(events: GameEvent[]): GameState {
             ),
           };
         }
+        case 'finaleStarted': {
+          return {
+            ...state,
+            finale: {
+              choice: null,
+              drawnPrizeId: null,
+              revealed: false,
+              seed: event.seed,
+            },
+          };
+        }
+        case 'peraChosen': {
+          if (state.finale === null) return state;
+          return {
+            ...state,
+            finale: {
+              ...state.finale,
+              choice: 'pera',
+              drawnPrizeId: Pera.id,
+              revealed: true,
+            },
+          };
+        }
+        case 'kahonDrawn': {
+          if (state.finale === null) return state;
+          return {
+            ...state,
+            finale: {
+              ...state.finale,
+              choice: 'kahon',
+              drawnPrizeId: event.prizeId,
+              revealed: false,
+              ...(event.seed !== undefined ? { seed: event.seed } : {}),
+            },
+          };
+        }
+        case 'kahonRevealed': {
+          if (state.finale === null) return state;
+          return {
+            ...state,
+            finale: {
+              ...state.finale,
+              revealed: true,
+            },
+          };
+        }
       }
     },
     {
@@ -577,6 +635,7 @@ export function fold(events: GameEvent[]): GameState {
       sealed: [],
       simulation: { armed: false, mode: 'mixed' },
       bracket: null,
+      finale: null,
     },
   );
 }
@@ -961,4 +1020,100 @@ export const isPlayerInCurrentBout = (state: Pick<GameState, 'bracket'>, playerI
   if (!current) return false;
   return current.player1Id === playerId || current.player2Id === playerId;
 };
+
+/** Draws a prize from the prize table using an injected PRNG or generator. */
+export function drawKahonPrize(
+  table: readonly Prize[] = kahonTable,
+  rng: () => number = Math.random,
+): Prize {
+  const index = Math.floor(rng() * table.length);
+  return table[index]!;
+}
+
+export type StartFinalePlan =
+  | { outcome: 'started'; event: Extract<GameEvent, { type: 'finaleStarted' }> }
+  | { outcome: 'noFinalist' }
+  | { outcome: 'alreadyStarted' };
+
+/** Presenter starts the Pera o Kahon finale for the crowned Finalist. */
+export function planStartFinale(state: GameState, seed?: number): StartFinalePlan {
+  if (!state.bracket || !state.bracket.finalistId) return { outcome: 'noFinalist' };
+  if (state.finale !== null) return { outcome: 'alreadyStarted' };
+
+  return {
+    outcome: 'started',
+    event: {
+      type: 'finaleStarted',
+      ...(typeof seed === 'number' ? { seed } : {}),
+    },
+  };
+}
+
+export type ChoosePeraPlan =
+  | { outcome: 'chosen'; event: Extract<GameEvent, { type: 'peraChosen' }> }
+  | { outcome: 'notInFinale' }
+  | { outcome: 'alreadyChosen' };
+
+/** Finalist (or Presenter on their behalf) chooses Pera (fixed voucher). */
+export function planChoosePera(state: GameState): ChoosePeraPlan {
+  if (state.finale === null) return { outcome: 'notInFinale' };
+  if (state.finale.choice !== null) return { outcome: 'alreadyChosen' };
+
+  return {
+    outcome: 'chosen',
+    event: { type: 'peraChosen' },
+  };
+}
+
+export type ChooseKahonPlan =
+  | { outcome: 'drawn'; event: Extract<GameEvent, { type: 'kahonDrawn' }> }
+  | { outcome: 'notInFinale' }
+  | { outcome: 'alreadyChosen' };
+
+/** Finalist (or Presenter on their behalf) chooses the Kahon, drawing from the table via generator. */
+export function planChooseKahon(
+  state: GameState,
+  generator?: number | (() => number),
+): ChooseKahonPlan {
+  if (state.finale === null) return { outcome: 'notInFinale' };
+  if (state.finale.choice !== null) return { outcome: 'alreadyChosen' };
+
+  const gen = generator ?? state.finale.seed;
+  const rng =
+    typeof gen === 'function'
+      ? gen
+      : typeof gen === 'number'
+        ? createRng(gen)
+        : Math.random;
+
+  const prize = drawKahonPrize(kahonTable, rng);
+
+  return {
+    outcome: 'drawn',
+    event: {
+      type: 'kahonDrawn',
+      prizeId: prize.id,
+      ...(typeof gen === 'number' ? { seed: gen } : {}),
+    },
+  };
+}
+
+export type RevealKahonPlan =
+  | { outcome: 'revealed'; event: Extract<GameEvent, { type: 'kahonRevealed' }> }
+  | { outcome: 'notInFinale' }
+  | { outcome: 'notDrawn' }
+  | { outcome: 'alreadyRevealed' };
+
+/** Presenter triggers the prop box reveal on Stage. */
+export function planRevealKahon(state: GameState): RevealKahonPlan {
+  if (state.finale === null) return { outcome: 'notInFinale' };
+  if (state.finale.choice !== 'kahon' || state.finale.drawnPrizeId === null) return { outcome: 'notDrawn' };
+  if (state.finale.revealed) return { outcome: 'alreadyRevealed' };
+
+  return {
+    outcome: 'revealed',
+    event: { type: 'kahonRevealed' },
+  };
+}
+
 

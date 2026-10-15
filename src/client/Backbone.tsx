@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { copy, showConfig } from '../content/show.ts';
 import { forPresenter } from '../content/questions.ts';
+import { Pera, Bokya, findPrize, peso, hasPlaceholderPrizes } from '../content/prizes.ts';
 import { activeBout, cullLowOnQuestions, cullOver, questionsLeft, survivors, type ShownState } from '../game/machine.ts';
 import { useSecondsLeft } from './clock.ts';
 import { useShowSound } from './useShowSound.ts';
@@ -23,6 +24,10 @@ export function Backbone({
   onSeedBracket,
   onRerunBout,
   onReverseElimination,
+  onStartFinale,
+  onChoosePera,
+  onChooseKahon,
+  onRevealKahon,
 }: {
   state: ShownState;
   joinUrl: string | null | undefined;
@@ -38,6 +43,10 @@ export function Backbone({
   onSeedBracket?: (seed?: number) => void;
   onRerunBout?: () => void;
   onReverseElimination?: (playerId: string) => void;
+  onStartFinale?: (seed?: number) => void;
+  onChoosePera?: () => void;
+  onChooseKahon?: (seed?: number) => void;
+  onRevealKahon?: () => void;
 }) {
   const full = state.roster.length >= showConfig.playerCap;
   // `?? null` for the same reason as the Stage: "no question yet" has to be the
@@ -197,7 +206,91 @@ export function Backbone({
           </div>
         )}
 
-        {question === null && state.phase !== 'joining' && <p className="note">{copy.backbone.nothingPresented}</p>}
+        {/* Start Finale button when Finalist is crowned (Ticket 05) */}
+        {Boolean(state.bracket?.finalistId) && state.finale === null && onStartFinale && (
+          <button
+            type="button"
+            className="start"
+            onClick={() => onStartFinale()}
+            disabled={connection !== 'online'}
+          >
+            {copy.backbone.startFinale}
+          </button>
+        )}
+
+        {/* Pera o Kahon finale controls (Ticket 05) */}
+        {state.finale !== null && (
+          <div className="finale-panel">
+            <h3>{copy.backbone.finaleHeading}</h3>
+            {hasPlaceholderPrizes() && <p className="warning">{copy.backbone.placeholderWarning}</p>}
+            <p className="finalist-callout">
+              {copy.backbone.finalistHeading}:{' '}
+              <strong>{state.roster.find((p) => p.id === state.bracket?.finalistId)?.name}</strong>
+            </p>
+
+            {state.finale.choice === null && (
+              <div className="finale-choices">
+                {onChoosePera && (
+                  <button
+                    type="button"
+                    className="start"
+                    onClick={onChoosePera}
+                    disabled={connection !== 'online'}
+                  >
+                    {copy.backbone.choosePeraOnBehalf}
+                  </button>
+                )}
+                {onChooseKahon && (
+                  <button
+                    type="button"
+                    className="start"
+                    onClick={() => onChooseKahon()}
+                    disabled={connection !== 'online'}
+                  >
+                    {copy.backbone.chooseKahonOnBehalf}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {state.finale.choice === 'pera' && (
+              <p className="outcome">
+                {copy.backbone.peraWon(Pera.label, peso(Pera.value))}
+              </p>
+            )}
+
+            {state.finale.choice === 'kahon' && state.finale.drawnPrizeId && (() => {
+              const prize = findPrize(state.finale.drawnPrizeId);
+              if (!prize) return null;
+              return (
+                <div className="kahon-drawn-details">
+                  <p className="drawn-prize">
+                    {copy.backbone.drawnPrizeReady(prize.label, peso(prize.value))}
+                  </p>
+                  {!state.finale.revealed && onRevealKahon && (
+                    <button
+                      type="button"
+                      className="start reveal"
+                      onClick={onRevealKahon}
+                      disabled={connection !== 'online'}
+                    >
+                      {copy.backbone.revealKahon}
+                    </button>
+                  )}
+                  {state.finale.revealed && (
+                    <p className="outcome">
+                      {prize.id === Bokya.id
+                        ? copy.backbone.bokyaResult
+                        : copy.backbone.wonResult(prize.label, peso(prize.value))}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {question === null && state.phase !== 'joining' && state.finale === null && <p className="note">{copy.backbone.nothingPresented}</p>}
 
         {state.phase === 'answering' && (
           <p className="countdown" role="timer">
