@@ -15,3 +15,6 @@ package-lock.json
 # Secrets and local overrides
 .env
 .env.*.local
+
+# Repomix bundles
+repomix-output.*
