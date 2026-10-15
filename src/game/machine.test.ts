@@ -24,6 +24,11 @@ import {
   planChoosePera,
   planChooseKahon,
   planRevealKahon,
+  planOpenDeck,
+  planCloseDeck,
+  planSetDeckSlide,
+  planNextDeckSlide,
+  planPrevDeckSlide,
   questionsLeft,
   secondsLeft,
   shown,
@@ -33,6 +38,7 @@ import type { GameEvent, SimulationMode } from './events.ts';
 import { showConfig, simulatedName } from '../content/show.ts';
 import { boutQuestions, cullQuestions, forPresenter } from '../content/questions.ts';
 import { Pera, Bokya, kahonTable, findPrize, peso } from '../content/prizes.ts';
+import { deckSlides, trimTools, entrepreneurs } from '../content/deck.ts';
 
 const aPlayer = (id: string, name: string): GameEvent => ({ type: 'playerJoined', playerId: id, name });
 const showStarted: GameEvent = { type: 'showStarted' };
@@ -70,6 +76,7 @@ describe('the roster', () => {
       simulation: { armed: false, mode: 'mixed' },
       bracket: null,
       finale: null,
+      deck: { active: false, slideIndex: 0 },
     });
   });
 
@@ -199,6 +206,7 @@ describe('the event log', () => {
       simulation: { armed: false, mode: 'mixed' },
       bracket: null,
       finale: null,
+      deck: { active: false, slideIndex: 0 },
     });
   });
 
@@ -308,6 +316,7 @@ describe('an answer arriving', () => {
       'answer',
       'asked',
       'bracket',
+      'deck',
       'finale',
       'phase',
       'question',
@@ -1471,6 +1480,220 @@ describe('the bracket', () => {
       const prize = findPrize(finalState.finale!.drawnPrizeId!);
       expect(prize!.label).toBe('Isang libre para sa merienda');
       expect(prize!.value).toBe(100);
+    });
+  });
+
+  describe('the deck (HTML slides & live safety net)', () => {
+    it('runs on its own with no dependency on Cull, Bracket, or Finale completion', () => {
+      const state = fold([]);
+      expect(state.phase).toBe('joining');
+      expect(state.deck).toEqual({ active: false, slideIndex: 0 });
+
+      const plan = planOpenDeck(state);
+      expect(plan.outcome).toBe('opened');
+      if (plan.outcome !== 'opened') throw new Error('plan failed');
+      const opened = fold([plan.event]);
+      expect(opened.deck.active).toBe(true);
+      expect(opened.deck.slideIndex).toBe(0);
+      expect(opened.phase).toBe('joining');
+    });
+
+    it('can switch into the deck from ANY phase, including while a question is running', () => {
+      // 1. Joining phase
+      const sJoin = fold([]);
+      expect(planOpenDeck(sJoin).outcome).toBe('opened');
+
+      // 2. Answering phase (question is actively running!)
+      const sAnswering = fold([aPlayer('p1', 'Ana'), showStarted, firstQuestion(1000)]);
+      expect(sAnswering.phase).toBe('answering');
+      expect(sAnswering.question).not.toBeNull();
+      const planFromAnswering = planOpenDeck(sAnswering);
+      expect(planFromAnswering.outcome).toBe('opened');
+      if (planFromAnswering.outcome !== 'opened') throw new Error('plan failed');
+      const openDuringAnswering = fold([
+        aPlayer('p1', 'Ana'),
+        showStarted,
+        firstQuestion(1000),
+        planFromAnswering.event,
+      ]);
+      expect(openDuringAnswering.deck.active).toBe(true);
+      expect(openDuringAnswering.deck.previousPhase).toBe('answering');
+      expect(openDuringAnswering.phase).toBe('answering');
+      expect(openDuringAnswering.question?.id).toBe(cullQuestions[0]!.id);
+
+      // 3. Reveal pending phase
+      const sRevealPending = fold([aPlayer('p1', 'Ana'), showStarted, firstQuestion(1000), { type: 'answerWindowClosed' }]);
+      expect(planOpenDeck(sRevealPending).outcome).toBe('opened');
+
+      // 4. Bracket phase
+      const sBracket = fold([
+        aPlayer('p1', 'Ana'),
+        aPlayer('p2', 'Ben'),
+        showStarted,
+        firstQuestion(1000),
+        submits('p1', questionOne.correctOptionId),
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+        { type: 'bracketSeeded', entrants: ['p1', 'p2'] },
+      ]);
+      expect(sBracket.bracket).not.toBeNull();
+      expect(planOpenDeck(sBracket).outcome).toBe('opened');
+
+      // 5. Finale phase
+      const sFinale = fold([
+        aPlayer('p1', 'Ana'),
+        aPlayer('p2', 'Ben'),
+        showStarted,
+        firstQuestion(1000),
+        submits('p1', questionOne.correctOptionId),
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+        { type: 'bracketSeeded', entrants: ['p1', 'p2'] },
+        { type: 'questionPresented', questionId: boutQuestions[0]!.id, at: 2000 },
+        submits('p1', boutQuestions[0]!.correctOptionId),
+        { type: 'answerWindowClosed' },
+        { type: 'revealTriggered' },
+        { type: 'finaleStarted' },
+      ]);
+      expect(sFinale.finale).not.toBeNull();
+      expect(planOpenDeck(sFinale).outcome).toBe('opened');
+    });
+
+    it('returns Stage to whatever phase the deck interrupted and game resumes where it left off', () => {
+      // Question running with a submission
+      const stateBeforeDeck = fold([
+        aPlayer('p1', 'Ana'),
+        aPlayer('p2', 'Ben'),
+        showStarted,
+        firstQuestion(1000),
+        submits('p1', questionOne.options[0]!.id),
+      ]);
+
+      expect(stateBeforeDeck.phase).toBe('answering');
+      expect(stateBeforeDeck.sealed).toHaveLength(1);
+
+      // Open deck
+      const openPlan = planOpenDeck(stateBeforeDeck);
+      if (openPlan.outcome !== 'opened') throw new Error('plan failed');
+      const stateInDeck = fold([
+        aPlayer('p1', 'Ana'),
+        aPlayer('p2', 'Ben'),
+        showStarted,
+        firstQuestion(1000),
+        submits('p1', questionOne.options[0]!.id),
+        openPlan.event,
+      ]);
+      expect(stateInDeck.deck.active).toBe(true);
+
+      // Close deck
+      const closePlan = planCloseDeck(stateInDeck);
+      expect(closePlan.outcome).toBe('closed');
+      if (closePlan.outcome !== 'closed') throw new Error('plan failed');
+      const resumedState = fold([
+        aPlayer('p1', 'Ana'),
+        aPlayer('p2', 'Ben'),
+        showStarted,
+        firstQuestion(1000),
+        submits('p1', questionOne.options[0]!.id),
+        openPlan.event,
+        closePlan.event,
+      ]);
+
+      // Game resumes exactly where it left off
+      expect(resumedState.deck.active).toBe(false);
+      expect(resumedState.phase).toBe('answering');
+      expect(resumedState.question?.id).toBe(cullQuestions[0]!.id);
+      expect(resumedState.sealed).toHaveLength(1);
+      expect(resumedState.sealed[0]?.playerId).toBe('p1');
+    });
+
+    it('refuses to open deck if already open, and refuses to close if not open', () => {
+      const closedState = fold([]);
+      expect(planCloseDeck(closedState).outcome).toBe('notOpen');
+
+      const openedState = fold([{ type: 'deckOpened' }]);
+      expect(planOpenDeck(openedState).outcome).toBe('alreadyOpen');
+    });
+
+    it('pauses answer submissions while the deck is active', () => {
+      const activeDeckState = fold([
+        aPlayer('p1', 'Ana'),
+        showStarted,
+        firstQuestion(1000),
+        { type: 'deckOpened' },
+      ]);
+      expect(activeDeckState.deck.active).toBe(true);
+
+      const plan = planSubmitAnswer(activeDeckState, { playerId: 'p1', optionId: questionOne.options[0]!.id });
+      expect(plan.outcome).toBe('windowClosed');
+    });
+
+    it('advances, retreats, and sets deck slides within bounds', () => {
+      let state = fold([{ type: 'deckOpened' }]);
+      expect(state.deck.slideIndex).toBe(0);
+
+      // At start, prev returns atEdge
+      expect(planPrevDeckSlide(state).outcome).toBe('atEdge');
+
+      // Next advances to slide 1
+      const nextPlan = planNextDeckSlide(state);
+      expect(nextPlan.outcome).toBe('set');
+      if (nextPlan.outcome !== 'set') throw new Error('plan failed');
+      state = fold([{ type: 'deckOpened' }, nextPlan.event]);
+      expect(state.deck.slideIndex).toBe(1);
+
+      // Jump to slide 5
+      const setPlan = planSetDeckSlide(state, 5);
+      expect(setPlan.outcome).toBe('set');
+      if (setPlan.outcome !== 'set') throw new Error('plan failed');
+      state = fold([{ type: 'deckOpened' }, nextPlan.event, setPlan.event]);
+      expect(state.deck.slideIndex).toBe(5);
+
+      // Previous returns to slide 4
+      const prevPlan = planPrevDeckSlide(state);
+      expect(prevPlan.outcome).toBe('set');
+      if (prevPlan.outcome !== 'set') throw new Error('plan failed');
+      state = fold([{ type: 'deckOpened' }, nextPlan.event, setPlan.event, prevPlan.event]);
+      expect(state.deck.slideIndex).toBe(4);
+
+      // Setting invalid slides is rejected
+      expect(planSetDeckSlide(state, -1).outcome).toBe('invalidSlide');
+      expect(planSetDeckSlide(state, deckSlides.length).outcome).toBe('invalidSlide');
+
+      // Jump to final slide
+      const lastIndex = deckSlides.length - 1;
+      const lastPlan = planSetDeckSlide(state, lastIndex);
+      if (lastPlan.outcome !== 'set') throw new Error('plan failed');
+      state = fold([{ type: 'deckOpened' }, lastPlan.event]);
+      expect(state.deck.slideIndex).toBe(lastIndex);
+      // At end, next returns atEdge
+      expect(planNextDeckSlide(state).outcome).toBe('atEdge');
+    });
+
+    it('contains all 5 TRIM instruments in depth and 8 entrepreneurs in typed data', () => {
+      expect(trimTools).toHaveLength(5);
+      for (const tool of trimTools) {
+        expect(tool.name).toBeTruthy();
+        expect(tool.purpose).toBeTruthy();
+        expect(tool.covers.length).toBeGreaterThanOrEqual(4);
+        expect(tool.when).toBeTruthy();
+      }
+
+      expect(entrepreneurs).toHaveLength(8);
+      for (const ent of entrepreneurs) {
+        expect(ent.name).toBeTruthy();
+        expect(ent.knownFor).toBeTruthy();
+        expect(ent.failedAt).toBeTruthy();
+        expect(ent.lesson).toBeTruthy();
+      }
+
+      // Check all 17 slides in deckSlides
+      expect(deckSlides.length).toBe(17);
+      const trimSlides = deckSlides.filter((s) => s.kind === 'trim-tool');
+      expect(trimSlides).toHaveLength(5);
+
+      const entSlides = deckSlides.filter((s) => s.kind === 'entrepreneur');
+      expect(entSlides).toHaveLength(8);
     });
   });
 });

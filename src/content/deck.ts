@@ -176,3 +176,111 @@ export const moduleBlocks = [
  */
 export const deckIntro =
   'Hindi lahat ng pagkabigo ay kamalayan. Marami sa mga nagsimulang negosyo ay kalkuladong taya na hindi naging gaya ng plano — at iyon mismo ang itinuturo ng Module 8.';
+
+export type DeckSlide =
+  | {
+      readonly id: string;
+      readonly kind: 'intro';
+      readonly title: string;
+      readonly subtitle: string;
+      readonly blocks: readonly { readonly id: string; readonly title: string; readonly gist: string }[];
+    }
+  | {
+      readonly id: string;
+      readonly kind: 'trim-overview';
+      readonly title: string;
+      readonly subtitle: string;
+      readonly tools: readonly TrimTool[];
+    }
+  | {
+      readonly id: string;
+      readonly kind: 'trim-tool';
+      readonly title: string;
+      readonly tool: TrimTool;
+      readonly index: number;
+      readonly total: number;
+    }
+  | {
+      readonly id: string;
+      readonly kind: 'entrepreneurs-intro';
+      readonly title: string;
+      readonly subtitle: string;
+      readonly entrepreneurs: readonly Entrepreneur[];
+    }
+  | {
+      readonly id: string;
+      readonly kind: 'entrepreneur';
+      readonly title: string;
+      readonly entrepreneur: Entrepreneur;
+      readonly index: number;
+      readonly total: number;
+    }
+  | {
+      readonly id: string;
+      readonly kind: 'conclusion';
+      readonly title: string;
+      readonly subtitle: string;
+      readonly takeaways: readonly { readonly heading: string; readonly body: string }[];
+    };
+
+export const deckTakeaways = [
+  {
+    heading: 'Magplano gamit ang TRIM',
+    body: 'Huwag lumundag sa negosyo nang walang kasangkapan: Canvas, Brief, Feasibility, Business Plan, at Pitch Deck.',
+  },
+  {
+    heading: 'Yakapin ang Pagkabigo bilang Aral',
+    body: 'Lahat ng matatagumpay na Filipino entrepreneurs ay may unang pagbagsak — ito ang naghubog ng kanilang diskarte.',
+  },
+  {
+    heading: 'Magsimula Ulit',
+    body: 'Ang pagbagsak ay hindi katapusan ng kuwento kundi pagkakataon upang magsimula muli nang may mas malalim na kaalaman.',
+  },
+] as const;
+
+export const deckSlides: readonly DeckSlide[] = [
+  {
+    id: 'intro',
+    kind: 'intro',
+    title: 'Module 8: Pagpaplano at Pagkabigo ng Entrepreneur',
+    subtitle: deckIntro,
+    blocks: moduleBlocks,
+  },
+  {
+    id: 'trim-overview',
+    kind: 'trim-overview',
+    title: 'Ang Limang Kasangkapan ng TRIM',
+    subtitle: 'Ang balangkas ng pagpaplano mula sa ideya hanggang sa pagpapakilala sa investor.',
+    tools: trimTools,
+  },
+  ...trimTools.map((tool, idx) => ({
+    id: `trim-${tool.id}`,
+    kind: 'trim-tool' as const,
+    title: tool.name,
+    tool,
+    index: idx,
+    total: trimTools.length,
+  })),
+  {
+    id: 'entrepreneurs-intro',
+    kind: 'entrepreneurs-intro',
+    title: 'Bakit Nabibigo ang Negosyo?',
+    subtitle: 'Walo sa mga pinakakilalang entrepreneur sa Pilipinas na unang bumagsak bago nagtagumpay.',
+    entrepreneurs,
+  },
+  ...entrepreneurs.map((entrepreneur, idx) => ({
+    id: `entrepreneur-${entrepreneur.id}`,
+    kind: 'entrepreneur' as const,
+    title: entrepreneur.name,
+    entrepreneur,
+    index: idx,
+    total: entrepreneurs.length,
+  })),
+  {
+    id: 'conclusion',
+    kind: 'conclusion',
+    title: 'Pangwakas: Ang Aral ng Module 8',
+    subtitle: 'Ang pagpaplano at pagbangon mula sa kabiguan ang tunay na pundasyon ng negosyo.',
+    takeaways: deckTakeaways,
+  },
+];

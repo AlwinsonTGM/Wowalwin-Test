@@ -517,3 +517,311 @@ h1 {
   text-align: center;
   color: var(--muted);
 }
+
+/* Deck controls on Backbone */
+.deck-panel {
+  border-left: 4px solid var(--gold);
+}
+
+.ghost--deck-open {
+  border-color: var(--gold);
+  color: var(--ink);
+  font-weight: 600;
+  padding: 0.6rem 1.2rem;
+}
+
+.deck-active-controls {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.badge.is-active-deck {
+  background: var(--gold);
+  color: var(--ink);
+  font-weight: 700;
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+  width: fit-content;
+}
+
+.deck-slide-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.deck-slide-number {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.deck-slide-title {
+  font-size: 1.25rem;
+  color: var(--ink);
+}
+
+.deck-nav-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.deck-jump-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.deck-jump-select {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #cfc4b2;
+  border-radius: 0.35rem;
+  background: #fff;
+  font-family: inherit;
+  font-size: 0.9rem;
+  max-width: 18rem;
+}
+
+.deck-exit-row {
+  margin-top: 0.5rem;
+}
+
+/* Stage Deck Slides */
+.surface--deck {
+  padding: 2.5rem 3.5rem;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  text-align: left;
+}
+
+.deck-slide {
+  width: 100%;
+  max-width: 72rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.deck-slide-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #4a4038;
+  padding-bottom: 0.5rem;
+  width: 100%;
+}
+
+.deck-badge {
+  font-size: 1rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--gold);
+  font-weight: 700;
+}
+
+.deck-counter {
+  font-size: 1rem;
+  letter-spacing: 0.1em;
+  color: #b9ac9a;
+  font-variant-numeric: tabular-nums;
+}
+
+.deck-badge-sub {
+  display: inline-block;
+  font-size: 1.1rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin: 0 0 0.5rem;
+}
+
+.deck-slide-heading {
+  margin: 0;
+  font-size: 3rem;
+  line-height: 1.15;
+  color: var(--paper);
+}
+
+.deck-lead {
+  font-size: 1.8rem;
+  line-height: 1.4;
+  color: #d1c7b7;
+  margin: 0 0 1rem;
+}
+
+.deck-blocks-grid,
+.deck-takeaways-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1.25rem;
+}
+
+.deck-block-card,
+.deck-takeaway-card {
+  border: 1px solid #4a4038;
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.deck-block-card h3,
+.deck-takeaway-card h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.4rem;
+  color: var(--gold);
+}
+
+.deck-block-card p,
+.deck-takeaway-card p {
+  margin: 0;
+  font-size: 1.2rem;
+  line-height: 1.4;
+  color: var(--paper);
+}
+
+.deck-trim-overview-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.deck-trim-overview-item {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #4a4038;
+  border-radius: 0.4rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.deck-trim-overview-item .tool-step {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--gold);
+  min-width: 2rem;
+}
+
+.deck-trim-overview-item .tool-info strong {
+  font-size: 1.5rem;
+  color: var(--paper);
+}
+
+.deck-trim-overview-item .tool-info p {
+  margin: 0.25rem 0 0;
+  font-size: 1.2rem;
+  color: #b9ac9a;
+}
+
+.deck-tool-content,
+.deck-entrepreneur-content {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.deck-callout {
+  border-left: 4px solid var(--gold);
+  background: rgba(212, 160, 23, 0.08);
+  padding: 1rem 1.25rem;
+  border-radius: 0 0.4rem 0.4rem 0;
+}
+
+.deck-callout--failure {
+  border-left-color: var(--rose);
+  background: rgba(176, 58, 72, 0.1);
+}
+
+.deck-callout--lesson {
+  border-left-color: var(--gold);
+  background: rgba(212, 160, 23, 0.12);
+}
+
+.deck-field-label {
+  display: block;
+  font-size: 0.9rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #b9ac9a;
+  margin-bottom: 0.35rem;
+}
+
+.deck-field-value {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.4;
+  color: var(--paper);
+}
+
+.deck-failure-text {
+  font-size: 1.6rem;
+  color: #f1b3bb;
+}
+
+.deck-lesson-quote {
+  margin: 0;
+  font-size: 1.7rem;
+  font-style: italic;
+  line-height: 1.4;
+  color: var(--gold);
+}
+
+.deck-covers-section {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #4a4038;
+  border-radius: 0.4rem;
+  padding: 1.25rem;
+}
+
+.deck-covers-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.deck-covers-list li {
+  font-size: 1.4rem;
+  line-height: 1.4;
+  color: var(--paper);
+}
+
+.deck-names-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.deck-ent-name-card {
+  border: 1px solid #4a4038;
+  border-radius: 0.4rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.deck-ent-name-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.4rem;
+  color: var(--gold);
+}
+
+.deck-ent-known {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #b9ac9a;
+}

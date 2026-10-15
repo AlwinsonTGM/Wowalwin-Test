@@ -3,6 +3,7 @@ import { copy, showConfig } from '../content/show.ts';
 import { forPresenter } from '../content/questions.ts';
 import { Pera, Bokya, findPrize, peso, hasPlaceholderPrizes } from '../content/prizes.ts';
 import { activeBout, cullLowOnQuestions, cullOver, questionsLeft, survivors, type ShownState } from '../game/machine.ts';
+import { deckSlides } from '../content/deck.ts';
 import { useSecondsLeft } from './clock.ts';
 import { useShowSound } from './useShowSound.ts';
 import type { Connection } from './useShow.ts';
@@ -28,6 +29,11 @@ export function Backbone({
   onChoosePera,
   onChooseKahon,
   onRevealKahon,
+  onOpenDeck,
+  onCloseDeck,
+  onSetDeckSlide,
+  onNextDeckSlide,
+  onPrevDeckSlide,
 }: {
   state: ShownState;
   joinUrl: string | null | undefined;
@@ -47,6 +53,11 @@ export function Backbone({
   onChoosePera?: () => void;
   onChooseKahon?: (seed?: number) => void;
   onRevealKahon?: () => void;
+  onOpenDeck?: (slideIndex?: number) => void;
+  onCloseDeck?: () => void;
+  onSetDeckSlide?: (slideIndex: number) => void;
+  onNextDeckSlide?: () => void;
+  onPrevDeckSlide?: () => void;
 }) {
   const full = state.roster.length >= showConfig.playerCap;
   // `?? null` for the same reason as the Stage: "no question yet" has to be the
@@ -353,6 +364,88 @@ export function Backbone({
               : copy.backbone.submitted(state.answer.submissions.length)}
           </p>
         )}
+      </section>
+
+      {/* The Deck safety net & presentation (ticket 07) */}
+      <section className="panel deck-panel">
+        <h2>{copy.backbone.deckHeading}</h2>
+
+        {!state.deck?.active ? (
+          <div className="deck-closed-controls">
+            <button
+              type="button"
+              className="ghost ghost--deck-open"
+              onClick={() => onOpenDeck?.()}
+              disabled={connection !== 'online'}
+            >
+              {copy.backbone.openDeck}
+            </button>
+            <p className="note">{copy.backbone.deckSafetyNetNote}</p>
+          </div>
+        ) : (() => {
+          const slideIndex = state.deck?.slideIndex ?? 0;
+          return (
+            <div className="deck-active-controls">
+              <p className="badge is-active-deck">{copy.backbone.deckActiveBadge}</p>
+              <div className="deck-slide-info">
+                <span className="deck-slide-number">
+                  {copy.backbone.slideNumber(slideIndex + 1, deckSlides.length)}
+                </span>
+                <strong className="deck-slide-title">
+                  {deckSlides[slideIndex]?.title}
+                </strong>
+              </div>
+
+              <div className="deck-nav-buttons">
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => onPrevDeckSlide?.()}
+                  disabled={connection !== 'online' || slideIndex <= 0}
+                >
+                  {copy.backbone.prevSlide}
+                </button>
+
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => onNextDeckSlide?.()}
+                  disabled={connection !== 'online' || slideIndex >= deckSlides.length - 1}
+                >
+                  {copy.backbone.nextSlide}
+                </button>
+
+                <label className="deck-jump-label">
+                  <span className="label">{copy.backbone.jumpSlide}:</span>
+                  <select
+                    aria-label={copy.backbone.jumpSlide}
+                    className="deck-jump-select"
+                    value={slideIndex}
+                    onChange={(e) => onSetDeckSlide?.(Number(e.target.value))}
+                    disabled={connection !== 'online'}
+                  >
+                    {deckSlides.map((slide, idx) => (
+                      <option key={slide.id} value={idx}>
+                        {idx + 1}. {slide.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="deck-exit-row">
+                <button
+                  type="button"
+                  className="start"
+                  onClick={() => onCloseDeck?.()}
+                  disabled={connection !== 'online'}
+                >
+                  {copy.backbone.closeDeck}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
       </section>
 
       {/* The rehearsal room. Seeded, never connected — see ticket 03's Comments. */}

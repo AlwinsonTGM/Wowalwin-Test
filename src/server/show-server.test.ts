@@ -393,6 +393,7 @@ describe('one question, answered and revealed', () => {
         'answer',
         'asked',
         'bracket',
+        'deck',
         'finale',
         'phase',
         'question',
@@ -1043,5 +1044,84 @@ describe('the event log on disk', () => {
       warned.mockRestore();
       await server.close();
     }
+  });
+
+  describe('the deck over the wire', () => {
+    it('allows Presenter to open deck, navigate slides, and close deck, broadcasting to all surfaces', async () => {
+      await withServer(async (port) => {
+        const presenter = surface(port);
+        const stage = surface(port);
+        const player = surface(port);
+
+        await Promise.all([presenter.ready, stage.ready, player.ready]);
+        await Promise.all([presenter.next('state'), stage.next('state'), player.next('state')]);
+
+        // Player joins
+        player.send({ kind: 'join', name: 'Ana' });
+        await player.next('joinAck');
+        await Promise.all([player.next('state'), stage.next('state'), presenter.next('state')]);
+
+        // Presenter opens deck
+        presenter.send({ kind: 'openDeck' });
+        const presenterOpened = (await presenter.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+        const stageOpened = (await stage.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+        const playerOpened = (await player.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+
+        expect(presenterOpened.state.deck.active).toBe(true);
+        expect(presenterOpened.state.deck.slideIndex).toBe(0);
+        expect(stageOpened.state.deck.active).toBe(true);
+        expect(playerOpened.state.deck.active).toBe(true);
+
+        // Presenter navigates next slide
+        presenter.send({ kind: 'nextDeckSlide' });
+        const presenterNext = (await presenter.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+        expect(presenterNext.state.deck.slideIndex).toBe(1);
+
+        // Presenter sets specific slide
+        presenter.send({ kind: 'setDeckSlide', slideIndex: 5 });
+        const presenterSet = (await presenter.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+        expect(presenterSet.state.deck.slideIndex).toBe(5);
+
+        // Presenter steps back
+        presenter.send({ kind: 'prevDeckSlide' });
+        const presenterPrev = (await presenter.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+        expect(presenterPrev.state.deck.slideIndex).toBe(4);
+
+        // Presenter closes deck
+        presenter.send({ kind: 'closeDeck' });
+        const presenterClosed = (await presenter.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+        expect(presenterClosed.state.deck.active).toBe(false);
+      });
+    });
+
+    it('keeps deck controls away from a Player phone (ADR-0004 guard)', async () => {
+      await withServer(async (port) => {
+        const presenter = surface(port);
+        const stage = surface(port);
+        const player = surface(port);
+
+        await Promise.all([presenter.ready, stage.ready, player.ready]);
+        await Promise.all([presenter.next('state'), stage.next('state'), player.next('state')]);
+
+        player.send({ kind: 'join', name: 'Ben' });
+        await player.next('joinAck');
+        await Promise.all([player.next('state'), stage.next('state'), presenter.next('state')]);
+
+        player.drain();
+        stage.drain();
+        presenter.drain();
+
+        // Player attempts to open deck and navigate
+        player.send({ kind: 'openDeck' });
+        player.send({ kind: 'nextDeckSlide' });
+        player.send({ kind: 'setDeckSlide', slideIndex: 3 });
+
+        // Trigger a presenter broadcast to confirm player messages were ignored
+        presenter.send({ kind: 'setSimulation', armed: true, mode: 'mixed' });
+        const seenByStage = (await stage.next('state')) as Extract<ServerMessage, { kind: 'state' }>;
+
+        expect(seenByStage.state.deck.active).toBe(false);
+      });
+    });
   });
 });

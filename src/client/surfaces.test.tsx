@@ -9,6 +9,7 @@ import { copy, showConfig } from '../content/show.ts';
 import { cullQuestions, forPresenter } from '../content/questions.ts';
 import { questionsLeft } from '../game/machine.ts';
 import { Pera, Bokya, findPrize, peso, hasPlaceholderPrizes, kahonTable } from '../content/prizes.ts';
+import { deckSlides, trimTools, entrepreneurs } from '../content/deck.ts';
 
 /**
  * The Backbone is the one surface that speaks, and these tests are about what
@@ -41,6 +42,7 @@ const aShow = (roster: RosterPlayer[] = [], phase: ShownState['phase'] = 'joinin
   simulation: { armed: false, mode: 'mixed' },
   bracket: null,
   finale: null,
+  deck: { active: false, slideIndex: 0 },
 });
 
 /** One question on screen, exactly as the machine would publish it. */
@@ -1280,6 +1282,291 @@ describe('the bracket on the surfaces', () => {
         render(finalePhone({ state, me: p2 }));
         expect(screen.getByText(copy.player.notFinalist)).toBeTruthy();
         expect(screen.queryByRole('button', { name: copy.player.kahonButton })).toBeNull();
+      });
+    });
+  });
+
+  describe('the deck (HTML slides & live safety net)', () => {
+    const aDeckState = (slideIndex = 0, over: Partial<ShownState> = {}): ShownState => ({
+      ...aShow([], 'started'),
+      deck: { active: true, slideIndex },
+      ...over,
+    });
+
+    describe('the Backbone controls for the Deck', () => {
+      it('offers the open deck button in joining phase', () => {
+        const onOpen = vi.fn();
+        render(
+          <Backbone
+            state={aShow([], 'joining')}
+            joinUrl={JOIN_URL}
+            connection="online"
+            onStartShow={() => {}}
+            onPresentQuestion={() => {}}
+            onReveal={() => {}}
+            onSimulate={() => {}}
+            onClearSimulated={() => {}}
+            onSimulateAnswers={() => {}}
+            onSetSimulation={() => {}}
+            onOpenDeck={onOpen}
+          />,
+        );
+
+        const openBtn = screen.getByRole('button', { name: copy.backbone.openDeck });
+        expect(openBtn).toBeTruthy();
+        fireEvent.click(openBtn);
+        expect(onOpen).toHaveBeenCalledOnce();
+      });
+
+      it('offers the open deck button while a question is actively running', () => {
+        const onOpen = vi.fn();
+        render(
+          <Backbone
+            state={asking()}
+            joinUrl={JOIN_URL}
+            connection="online"
+            onStartShow={() => {}}
+            onPresentQuestion={() => {}}
+            onReveal={() => {}}
+            onSimulate={() => {}}
+            onClearSimulated={() => {}}
+            onSimulateAnswers={() => {}}
+            onSetSimulation={() => {}}
+            onOpenDeck={onOpen}
+          />,
+        );
+
+        const openBtn = screen.getByRole('button', { name: copy.backbone.openDeck });
+        expect(openBtn).toBeTruthy();
+        fireEvent.click(openBtn);
+        expect(onOpen).toHaveBeenCalledOnce();
+      });
+
+      it('presents slide navigation and exit controls when deck is active', () => {
+        const onNext = vi.fn();
+        const onPrev = vi.fn();
+        const onSet = vi.fn();
+        const onClose = vi.fn();
+
+        const { rerender } = render(
+          <Backbone
+            state={aDeckState(0)}
+            joinUrl={JOIN_URL}
+            connection="online"
+            onStartShow={() => {}}
+            onPresentQuestion={() => {}}
+            onReveal={() => {}}
+            onSimulate={() => {}}
+            onClearSimulated={() => {}}
+            onSimulateAnswers={() => {}}
+            onSetSimulation={() => {}}
+            onNextDeckSlide={onNext}
+            onPrevDeckSlide={onPrev}
+            onSetDeckSlide={onSet}
+            onCloseDeck={onClose}
+          />,
+        );
+
+        expect(screen.getByText(copy.backbone.deckActiveBadge)).toBeTruthy();
+        expect(screen.getByText(copy.backbone.slideNumber(1, deckSlides.length))).toBeTruthy();
+        expect(screen.getByText(deckSlides[0]!.title)).toBeTruthy();
+
+        // Previous button is disabled at slide 0
+        const prevBtn = screen.getByRole('button', { name: copy.backbone.prevSlide });
+        expect((prevBtn as HTMLButtonElement).disabled).toBe(true);
+
+        // Next button is enabled
+        const nextBtn = screen.getByRole('button', { name: copy.backbone.nextSlide });
+        expect((nextBtn as HTMLButtonElement).disabled).toBe(false);
+        fireEvent.click(nextBtn);
+        expect(onNext).toHaveBeenCalledOnce();
+
+        // Jump select dropdown
+        const select = screen.getByRole('combobox', { name: copy.backbone.jumpSlide });
+        expect(select).toBeTruthy();
+        fireEvent.change(select, { target: { value: '4' } });
+        expect(onSet).toHaveBeenCalledWith(4);
+
+        // Close button
+        const closeBtn = screen.getByRole('button', { name: copy.backbone.closeDeck });
+        fireEvent.click(closeBtn);
+        expect(onClose).toHaveBeenCalledOnce();
+
+        // Rerender at final slide: Next should be disabled, Prev enabled
+        rerender(
+          <Backbone
+            state={aDeckState(deckSlides.length - 1)}
+            joinUrl={JOIN_URL}
+            connection="online"
+            onStartShow={() => {}}
+            onPresentQuestion={() => {}}
+            onReveal={() => {}}
+            onSimulate={() => {}}
+            onClearSimulated={() => {}}
+            onSimulateAnswers={() => {}}
+            onSetSimulation={() => {}}
+            onNextDeckSlide={onNext}
+            onPrevDeckSlide={onPrev}
+            onSetDeckSlide={onSet}
+            onCloseDeck={onClose}
+          />,
+        );
+        const nextAtEnd = screen.getByRole('button', { name: copy.backbone.nextSlide });
+        const prevAtEnd = screen.getByRole('button', { name: copy.backbone.prevSlide });
+        expect((nextAtEnd as HTMLButtonElement).disabled).toBe(true);
+        expect((prevAtEnd as HTMLButtonElement).disabled).toBe(false);
+        fireEvent.click(prevAtEnd);
+        expect(onPrev).toHaveBeenCalledOnce();
+      });
+    });
+
+    describe('the Stage rendering the Deck', () => {
+      it('renders the intro slide with module title, lead subtitle, and 3 blocks', () => {
+        const introSlide = deckSlides[0]!;
+        if (introSlide.kind !== 'intro') throw new Error('First slide must be intro');
+        render(<Stage state={aDeckState(0)} joinUrl={JOIN_URL} />);
+        expect(screen.getByText(copy.stage.deckBadge)).toBeTruthy();
+        expect(screen.getByText(copy.stage.slideCounter(1, deckSlides.length))).toBeTruthy();
+        expect(screen.getByText(introSlide.title)).toBeTruthy();
+        expect(screen.getByText(introSlide.subtitle)).toBeTruthy();
+        expect(screen.getByText('Bakit mahalaga ang pagpaplano')).toBeTruthy();
+        expect(screen.getByText('Ang TRIM tools')).toBeTruthy();
+        expect(screen.getByText('Bakit nabibigo ang negosyo')).toBeTruthy();
+      });
+
+      it('renders the TRIM overview slide', () => {
+        render(<Stage state={aDeckState(1)} joinUrl={JOIN_URL} />);
+        expect(screen.getByText('Ang Limang Kasangkapan ng TRIM')).toBeTruthy();
+        for (const tool of trimTools) {
+          expect(screen.getByText(tool.name)).toBeTruthy();
+        }
+      });
+
+      it('covers all five TRIM instruments in depth, not merely their names', () => {
+        // Test all 5 TRIM tool slides (slides 2 to 6)
+        trimTools.forEach((tool, index) => {
+          const { unmount } = render(<Stage state={aDeckState(2 + index)} joinUrl={JOIN_URL} />);
+          expect(screen.getByText(copy.stage.trimToolBadge(index + 1, 5))).toBeTruthy();
+          expect(screen.getByText(tool.name)).toBeTruthy();
+          expect(screen.getByText(tool.purpose)).toBeTruthy();
+          expect(screen.getByText(tool.when)).toBeTruthy();
+          // Verify all depth bullet points are rendered
+          for (const item of tool.covers) {
+            expect(screen.getByText(item)).toBeTruthy();
+          }
+          unmount();
+        });
+      });
+
+      it('renders the entrepreneurs overview slide', () => {
+        render(<Stage state={aDeckState(7)} joinUrl={JOIN_URL} />);
+        expect(screen.getByText('Bakit Nabibigo ang Negosyo?')).toBeTruthy();
+        for (const ent of entrepreneurs) {
+          expect(screen.getByText(ent.name)).toBeTruthy();
+        }
+      });
+
+      it('covers all eight entrepreneurs with what each failed at before succeeding', () => {
+        // Test all 8 entrepreneur slides (slides 8 to 15)
+        entrepreneurs.forEach((ent, index) => {
+          const { unmount } = render(<Stage state={aDeckState(8 + index)} joinUrl={JOIN_URL} />);
+          expect(screen.getByText(copy.stage.entrepreneurBadge(index + 1, 8))).toBeTruthy();
+          expect(screen.getByText(ent.name)).toBeTruthy();
+          expect(screen.getByText(ent.knownFor)).toBeTruthy();
+          expect(screen.getByText(ent.failedAt)).toBeTruthy();
+          expect(screen.getByText(`“${ent.lesson}”`)).toBeTruthy();
+          unmount();
+        });
+      });
+
+      it('renders the conclusion slide with key takeaways', () => {
+        render(<Stage state={aDeckState(16)} joinUrl={JOIN_URL} />);
+        expect(screen.getByText('Pangwakas: Ang Aral ng Module 8')).toBeTruthy();
+        expect(screen.getByText('Magplano gamit ang TRIM')).toBeTruthy();
+        expect(screen.getByText('Yakapin ang Pagkabigo bilang Aral')).toBeTruthy();
+        expect(screen.getByText('Magsimula Ulit')).toBeTruthy();
+      });
+
+      it('switches Stage into the deck from a running question, and resumes seamlessly when closed', () => {
+        const questionState = asking();
+        // 1. Stage shows question
+        const { rerender } = render(<Stage state={questionState} joinUrl={JOIN_URL} />);
+        expect(screen.getByText(theQuestion.prompt)).toBeTruthy();
+        expect(screen.queryByText(copy.stage.deckBadge)).toBeNull();
+
+        // 2. Backbone opens deck: Stage switches into Deck
+        const deckOpenState: ShownState = {
+          ...questionState,
+          deck: { active: true, slideIndex: 2 }, // on Business Model Canvas
+        };
+        rerender(<Stage state={deckOpenState} joinUrl={JOIN_URL} />);
+        expect(screen.queryByText(theQuestion.prompt)).toBeNull();
+        expect(screen.getByText('Business Model Canvas')).toBeTruthy();
+        expect(screen.getByText(trimTools[0]!.purpose)).toBeTruthy();
+
+        // 3. Deck closed: Stage resumes the question seamlessly
+        const deckClosedState: ShownState = {
+          ...questionState,
+          deck: { active: false, slideIndex: 2 },
+        };
+        rerender(<Stage state={deckClosedState} joinUrl={JOIN_URL} />);
+        expect(screen.getByText(theQuestion.prompt)).toBeTruthy();
+        for (const option of theQuestion.options) {
+          expect(screen.getByText(option.label)).toBeTruthy();
+        }
+      });
+    });
+
+    describe('the Player phone during Deck presentation', () => {
+      it('shows watching notice when deck is active, and resumes normal view when closed', () => {
+        const me: RosterPlayer = { id: 'p1', name: 'Ana', connected: true, standing: 'in', simulated: false };
+        const questionState = asking({ roster: [me] });
+
+        // 1. Player phone shows question options
+        const { rerender } = render(
+          <Player
+            state={questionState}
+            me={me}
+            refusal={null}
+            complaint={null}
+            connection="online"
+            answerNote={null}
+            onJoin={() => {}}
+            onSubmitAnswer={() => {}}
+          />,
+        );
+        expect(screen.getByText(theQuestion.prompt)).toBeTruthy();
+
+        // 2. Deck active: Player phone shows notice to look at Stage
+        rerender(
+          <Player
+            state={{ ...questionState, deck: { active: true, slideIndex: 0 } }}
+            me={me}
+            refusal={null}
+            complaint={null}
+            connection="online"
+            answerNote={null}
+            onJoin={() => {}}
+            onSubmitAnswer={() => {}}
+          />,
+        );
+        expect(screen.queryByText(theQuestion.prompt)).toBeNull();
+        expect(screen.getByText(copy.player.deckActive)).toBeTruthy();
+
+        // 3. Deck closed: Player phone resumes question
+        rerender(
+          <Player
+            state={{ ...questionState, deck: { active: false, slideIndex: 0 } }}
+            me={me}
+            refusal={null}
+            complaint={null}
+            connection="online"
+            answerNote={null}
+            onJoin={() => {}}
+            onSubmitAnswer={() => {}}
+          />,
+        );
+        expect(screen.getByText(theQuestion.prompt)).toBeTruthy();
       });
     });
   });

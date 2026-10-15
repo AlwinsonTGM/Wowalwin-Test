@@ -55,6 +55,11 @@ function App() {
       onChoosePera={show.choosePera}
       onChooseKahon={show.chooseKahon}
       onRevealKahon={show.revealKahon}
+      onOpenDeck={show.openDeck}
+      onCloseDeck={show.closeDeck}
+      onSetDeckSlide={show.setDeckSlide}
+      onNextDeckSlide={show.nextDeckSlide}
+      onPrevDeckSlide={show.prevDeckSlide}
     />
   );
 }

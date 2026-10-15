@@ -23,6 +23,11 @@ import {
   planChoosePera,
   planChooseKahon,
   planRevealKahon,
+  planOpenDeck,
+  planCloseDeck,
+  planSetDeckSlide,
+  planNextDeckSlide,
+  planPrevDeckSlide,
   shown,
 } from '../game/machine.ts';
 import type { GameEvent, SimulationMode } from '../game/events.ts';
@@ -77,6 +82,15 @@ const parse = (raw: RawData): ClientMessage | null => {
       return { kind: 'chooseKahon', seed: typeof message.seed === 'number' ? message.seed : undefined };
     }
     if (message?.kind === 'revealKahon') return { kind: 'revealKahon' };
+    if (message?.kind === 'openDeck') {
+      return { kind: 'openDeck', slideIndex: typeof message.slideIndex === 'number' ? message.slideIndex : undefined };
+    }
+    if (message?.kind === 'closeDeck') return { kind: 'closeDeck' };
+    if (message?.kind === 'setDeckSlide' && typeof message.slideIndex === 'number') {
+      return { kind: 'setDeckSlide', slideIndex: message.slideIndex };
+    }
+    if (message?.kind === 'nextDeckSlide') return { kind: 'nextDeckSlide' };
+    if (message?.kind === 'prevDeckSlide') return { kind: 'prevDeckSlide' };
     if (message?.kind !== 'join') return null;
 
     const name = typeof message.name === 'string' ? message.name : undefined;
@@ -159,6 +173,8 @@ export async function startShowServer({
     clearTimeout(windowTimer);
     clearTimeout(suspenseTimer);
     clearTimeout(winnerTimer);
+
+    if (state.deck.active) return;
 
     const question = state.question;
     if (state.phase === 'answering' && question) {
@@ -347,6 +363,41 @@ export async function startShowServer({
         if (!isPresenter) return;
         const plan = planRevealKahon(state);
         if (plan.outcome === 'revealed') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'openDeck') {
+        if (!isPresenter) return;
+        const plan = planOpenDeck(state, message.slideIndex);
+        if (plan.outcome === 'opened') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'closeDeck') {
+        if (!isPresenter) return;
+        const plan = planCloseDeck(state);
+        if (plan.outcome === 'closed') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'setDeckSlide') {
+        if (!isPresenter) return;
+        const plan = planSetDeckSlide(state, message.slideIndex);
+        if (plan.outcome === 'set') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'nextDeckSlide') {
+        if (!isPresenter) return;
+        const plan = planNextDeckSlide(state);
+        if (plan.outcome === 'set') record(plan.event);
+        return;
+      }
+
+      if (message.kind === 'prevDeckSlide') {
+        if (!isPresenter) return;
+        const plan = planPrevDeckSlide(state);
+        if (plan.outcome === 'set') record(plan.event);
         return;
       }
 

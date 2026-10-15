@@ -2,6 +2,7 @@ import type { GameEvent, SimulationMode } from './events.ts';
 import { findQuestion, questionsIn, type PoolName, type Question } from '../content/questions.ts';
 import { showConfig, simulatedName } from '../content/show.ts';
 import { Pera, kahonTable, type Prize } from '../content/prizes.ts';
+import { deckSlides } from '../content/deck.ts';
 
 export type Player = {
   id: string;
@@ -69,6 +70,12 @@ export type FinaleState = {
   seed?: number;
 };
 
+export type DeckState = {
+  active: boolean;
+  slideIndex: number;
+  previousPhase?: Phase;
+};
+
 export type GameState = {
   phase: Phase;
   roster: Player[];
@@ -94,6 +101,8 @@ export type GameState = {
   bracket: BracketState | null;
   /** Ticket 05: The Pera o Kahon finale */
   finale: FinaleState | null;
+  /** Ticket 07: The Deck (safety net & module slides presentation) */
+  deck: DeckState;
 };
 
 /** What a surface is given: the same state, minus the room's secret. */
@@ -624,6 +633,38 @@ export function fold(events: GameEvent[]): GameState {
             },
           };
         }
+        case 'deckOpened': {
+          return {
+            ...state,
+            deck: {
+              ...state.deck,
+              active: true,
+              slideIndex:
+                event.slideIndex !== undefined
+                  ? Math.max(0, Math.min(event.slideIndex, deckSlides.length - 1))
+                  : state.deck.slideIndex,
+              previousPhase: state.phase,
+            },
+          };
+        }
+        case 'deckClosed': {
+          return {
+            ...state,
+            deck: {
+              ...state.deck,
+              active: false,
+            },
+          };
+        }
+        case 'deckSlideSet': {
+          return {
+            ...state,
+            deck: {
+              ...state.deck,
+              slideIndex: Math.max(0, Math.min(event.slideIndex, deckSlides.length - 1)),
+            },
+          };
+        }
       }
     },
     {
@@ -636,6 +677,7 @@ export function fold(events: GameEvent[]): GameState {
       simulation: { armed: false, mode: 'mixed' },
       bracket: null,
       finale: null,
+      deck: { active: false, slideIndex: 0 },
     },
   );
 }
@@ -784,7 +826,7 @@ export function planSubmitAnswer(state: GameState, answer: { playerId: string; o
     }
   }
 
-  if (state.phase !== 'answering' || !question) return { outcome: 'windowClosed' };
+  if (state.deck.active || state.phase !== 'answering' || !question) return { outcome: 'windowClosed' };
   if (!question.options.some((option) => option.id === answer.optionId)) return { outcome: 'notAnOption' };
   if (state.sealed.some((submission) => submission.playerId === answer.playerId)) {
     return { outcome: 'alreadyAnswered' };
@@ -1115,5 +1157,77 @@ export function planRevealKahon(state: GameState): RevealKahonPlan {
     event: { type: 'kahonRevealed' },
   };
 }
+
+export type OpenDeckPlan =
+  | { outcome: 'opened'; event: Extract<GameEvent, { type: 'deckOpened' }> }
+  | { outcome: 'alreadyOpen' };
+
+/** Presenter switches the Stage into the Deck from any phase. */
+export function planOpenDeck(state: GameState, slideIndex?: number): OpenDeckPlan {
+  if (state.deck.active) return { outcome: 'alreadyOpen' };
+
+  return {
+    outcome: 'opened',
+    event: {
+      type: 'deckOpened',
+      ...(slideIndex !== undefined ? { slideIndex } : {}),
+    },
+  };
+}
+
+export type CloseDeckPlan =
+  | { outcome: 'closed'; event: Extract<GameEvent, { type: 'deckClosed' }> }
+  | { outcome: 'notOpen' };
+
+/** Presenter returns Stage from the Deck back to the interrupted game phase. */
+export function planCloseDeck(state: GameState): CloseDeckPlan {
+  if (!state.deck.active) return { outcome: 'notOpen' };
+
+  return {
+    outcome: 'closed',
+    event: { type: 'deckClosed' },
+  };
+}
+
+export type SetDeckSlidePlan =
+  | { outcome: 'set'; event: Extract<GameEvent, { type: 'deckSlideSet' }> }
+  | { outcome: 'invalidSlide' };
+
+/** Presenter jumps directly to a specific slide in the Deck. */
+export function planSetDeckSlide(state: GameState, slideIndex: number): SetDeckSlidePlan {
+  if (slideIndex < 0 || slideIndex >= deckSlides.length) {
+    return { outcome: 'invalidSlide' };
+  }
+
+  return {
+    outcome: 'set',
+    event: { type: 'deckSlideSet', slideIndex },
+  };
+}
+
+export type SlideStepPlan =
+  | { outcome: 'set'; event: Extract<GameEvent, { type: 'deckSlideSet' }> }
+  | { outcome: 'atEdge' };
+
+/** Presenter advances to the next Deck slide. */
+export function planNextDeckSlide(state: GameState): SlideStepPlan {
+  if (state.deck.slideIndex >= deckSlides.length - 1) return { outcome: 'atEdge' };
+
+  return {
+    outcome: 'set',
+    event: { type: 'deckSlideSet', slideIndex: state.deck.slideIndex + 1 },
+  };
+}
+
+/** Presenter steps back to the previous Deck slide. */
+export function planPrevDeckSlide(state: GameState): SlideStepPlan {
+  if (state.deck.slideIndex <= 0) return { outcome: 'atEdge' };
+
+  return {
+    outcome: 'set',
+    event: { type: 'deckSlideSet', slideIndex: state.deck.slideIndex - 1 },
+  };
+}
+
 
 

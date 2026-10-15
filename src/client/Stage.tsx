@@ -1,10 +1,139 @@
 import { copy } from '../content/show.ts';
 import { Pera, Bokya, findPrize, peso, hasPlaceholderPrizes } from '../content/prizes.ts';
 import { activeBout, type ShownState } from '../game/machine.ts';
+import { deckSlides, type DeckSlide } from '../content/deck.ts';
 import { useSecondsLeft } from './clock.ts';
+
+function StageDeckView({ slide, slideIndex }: { slide: DeckSlide; slideIndex: number }) {
+  return (
+    <section className={`deck-slide deck-slide--${slide.kind}`}>
+      <div className="deck-slide-meta">
+        <span className="deck-badge">{copy.stage.deckBadge}</span>
+        <span className="deck-counter">{copy.stage.slideCounter(slideIndex + 1, deckSlides.length)}</span>
+      </div>
+
+      <h2 className="deck-slide-heading">{slide.title}</h2>
+
+      {slide.kind === 'intro' && (
+        <div className="deck-intro-content">
+          <p className="deck-lead">{slide.subtitle}</p>
+          <div className="deck-blocks-grid">
+            {slide.blocks.map((block) => (
+              <div key={block.id} className="deck-block-card">
+                <h3>{block.title}</h3>
+                <p>{block.gist}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {slide.kind === 'trim-overview' && (
+        <div className="deck-overview-content">
+          <p className="deck-lead">{slide.subtitle}</p>
+          <ol className="deck-trim-overview-list">
+            {slide.tools.map((tool, idx) => (
+              <li key={tool.id} className="deck-trim-overview-item">
+                <span className="tool-step">{idx + 1}</span>
+                <div className="tool-info">
+                  <strong>{tool.name}</strong>
+                  <p>{tool.purpose}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {slide.kind === 'trim-tool' && (
+        <div className="deck-tool-content">
+          <p className="deck-badge-sub">{copy.stage.trimToolBadge(slide.index + 1, slide.total)}</p>
+          <div className="deck-callout deck-callout--purpose">
+            <span className="deck-field-label">{copy.stage.trimPurposeHeading}</span>
+            <p className="deck-field-value">{slide.tool.purpose}</p>
+          </div>
+
+          <div className="deck-covers-section">
+            <span className="deck-field-label">{copy.stage.trimCoversHeading}</span>
+            <ul className="deck-covers-list">
+              {slide.tool.covers.map((item, i) => (
+                <li key={i}>{item}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="deck-callout deck-callout--when">
+            <span className="deck-field-label">{copy.stage.trimWhenHeading}</span>
+            <p className="deck-field-value">{slide.tool.when}</p>
+          </div>
+        </div>
+      )}
+
+      {slide.kind === 'entrepreneurs-intro' && (
+        <div className="deck-entrepreneurs-intro-content">
+          <p className="deck-lead">{slide.subtitle}</p>
+          <div className="deck-names-grid">
+            {slide.entrepreneurs.map((ent) => (
+              <div key={ent.id} className="deck-ent-name-card">
+                <h3>{ent.name}</h3>
+                <p className="deck-ent-known">{ent.knownFor}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {slide.kind === 'entrepreneur' && (
+        <div className="deck-entrepreneur-content">
+          <p className="deck-badge-sub">{copy.stage.entrepreneurBadge(slide.index + 1, slide.total)}</p>
+
+          <div className="deck-callout deck-callout--known">
+            <span className="deck-field-label">{copy.stage.entrepreneurKnownHeading}</span>
+            <p className="deck-field-value">{slide.entrepreneur.knownFor}</p>
+          </div>
+
+          <div className="deck-callout deck-callout--failure">
+            <span className="deck-field-label">{copy.stage.entrepreneurFailedHeading}</span>
+            <p className="deck-field-value deck-failure-text">{slide.entrepreneur.failedAt}</p>
+          </div>
+
+          <div className="deck-callout deck-callout--lesson">
+            <span className="deck-field-label">{copy.stage.entrepreneurLessonHeading}</span>
+            <blockquote className="deck-lesson-quote">“{slide.entrepreneur.lesson}”</blockquote>
+          </div>
+        </div>
+      )}
+
+      {slide.kind === 'conclusion' && (
+        <div className="deck-conclusion-content">
+          <p className="deck-lead">{slide.subtitle}</p>
+          <span className="deck-field-label">{copy.stage.conclusionHeading}</span>
+          <div className="deck-takeaways-grid">
+            {slide.takeaways.map((item, idx) => (
+              <div key={idx} className="deck-takeaway-card">
+                <h3>{item.heading}</h3>
+                <p>{item.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
 
 /** The projector: everything the room sees, and nothing else. */
 export function Stage({ state, joinUrl }: { state: ShownState; joinUrl: string | null | undefined }) {
+  if (state.deck?.active) {
+    const slideIndex = state.deck?.slideIndex ?? 0;
+    const slide = deckSlides[slideIndex] ?? deckSlides[0]!;
+    return (
+      <main className="surface surface--stage surface--deck">
+        <StageDeckView slide={slide} slideIndex={slideIndex} />
+      </main>
+    );
+  }
+
   // `?? null` rather than `=== null` below: the join screen is the Stage's
   // floor, and nothing about "no question" should be able to fall through to
   // rendering one.

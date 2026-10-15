@@ -40,4 +40,8 @@ export type GameEvent =
   | { type: 'finaleStarted'; seed?: number }
   | { type: 'peraChosen' }
   | { type: 'kahonDrawn'; prizeId: string; seed?: number }
-  | { type: 'kahonRevealed' };
+  | { type: 'kahonRevealed' }
+  /** Ticket 07: The Deck (HTML slides safety net & module presentation) */
+  | { type: 'deckOpened'; slideIndex?: number }
+  | { type: 'deckClosed' }
+  | { type: 'deckSlideSet'; slideIndex: number };

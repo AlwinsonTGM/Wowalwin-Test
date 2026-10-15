@@ -55,6 +55,15 @@ export function Player({
   const playing = me !== null && me.standing === 'in' && (!isBout || inBout);
   const showQuestion = !inFinale && question !== null && (isBout ? inBout : (me !== null || refusal !== null));
 
+  if (state.deck?.active) {
+    return (
+      <main className="surface surface--player">
+        <h1>{copy.player.title}</h1>
+        <p className="waiting">{copy.player.deckActive}</p>
+      </main>
+    );
+  }
+
   return (
     <main className="surface surface--player">
       <h1>{copy.player.title}</h1>

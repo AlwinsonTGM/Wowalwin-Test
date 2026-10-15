@@ -36,6 +36,7 @@ export function useShow() {
     simulation: { armed: false, mode: 'mixed' },
     bracket: null,
     finale: null,
+    deck: { active: false, slideIndex: 0 },
   });
   /** undefined until the server says; null once it has said there is none. */
   const [joinHost, setJoinHost] = useState<string | null | undefined>(undefined);
@@ -138,6 +139,12 @@ export function useShow() {
     choosePera: () => send({ kind: 'choosePera' }),
     chooseKahon: (seed?: number) => send({ kind: 'chooseKahon', seed }),
     revealKahon: () => send({ kind: 'revealKahon' }),
+    /** The Deck actions (ticket 07) */
+    openDeck: (slideIndex?: number) => send({ kind: 'openDeck', slideIndex }),
+    closeDeck: () => send({ kind: 'closeDeck' }),
+    setDeckSlide: (slideIndex: number) => send({ kind: 'setDeckSlide', slideIndex }),
+    nextDeckSlide: () => send({ kind: 'nextDeckSlide' }),
+    prevDeckSlide: () => send({ kind: 'prevDeckSlide' }),
     /** The show's own words for how this phone's last submission went. */
     answerNote: answerAck === null ? null : copy.player.answer[answerAck],
   };

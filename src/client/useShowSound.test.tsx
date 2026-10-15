@@ -44,6 +44,7 @@ const aState = (phase: ShownState['phase']): ShownState => ({
   simulation: { armed: false, mode: 'mixed' },
   bracket: null,
   finale: null,
+  deck: { active: false, slideIndex: 0 },
 });
 
 function Presenter({ state, expose }: { state: ShownState; expose?: (api: ReturnType<typeof useShowSound>) => void }) {

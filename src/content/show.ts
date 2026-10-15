@@ -200,6 +200,17 @@ export const copy = {
     wonResult: (label: string, value: string) => `Panalo: ${label} (${value})!`,
     placeholderWarning: 'Babala: Stand-in / placeholder pa ang mga premyo sa table.',
 
+    /** The Deck safety net & presentation (ticket 07) */
+    deckHeading: 'Ang Deck (Safety Net)',
+    openDeck: 'Ipakita ang Deck sa Stage',
+    closeDeck: 'Isara ang Deck at Bumalik sa Show',
+    deckSafetyNetNote: 'Puwede buksan ang deck kahit anong oras bilang safety net o presentasyon.',
+    deckActiveBadge: 'Naka-display ang Deck sa Stage',
+    prevSlide: 'Nakaraang Slide',
+    nextSlide: 'Susunod na Slide',
+    jumpSlide: 'Lumipat ng Slide',
+    slideNumber: (current: number, total: number) => `Slide ${current} / ${total}`,
+
     /** One control for every sound in the show. */
     mute: 'Patayin ang tunog',
     unmute: 'Buksan ang tunog',
@@ -243,6 +254,19 @@ export const copy = {
     wonPrize: (label: string, value: string) => `Panalo: ${label} (${value})!`,
     wonBokya: 'Bokya! Walang napanalunang premyo.',
     placeholderWarning: 'Paalala: Stand-in / placeholder pa ang mga premyo.',
+
+    /** The Deck slides (ticket 07) */
+    deckBadge: 'Module 8 Presentasyon',
+    slideCounter: (current: number, total: number) => `Slide ${current} / ${total}`,
+    trimToolBadge: (current: number, total: number) => `TRIM ${current} ng ${total}`,
+    trimPurposeHeading: 'Layunin:',
+    trimCoversHeading: 'Mga Saklaw (In-depth):',
+    trimWhenHeading: 'Kailan Ginagamit:',
+    entrepreneurBadge: (current: number, total: number) => `Entrepreneur ${current} ng ${total}`,
+    entrepreneurFailedHeading: 'Unang Pagkabigo:',
+    entrepreneurKnownHeading: 'Kilala Ngayon Sa:',
+    entrepreneurLessonHeading: 'Aral:',
+    conclusionHeading: 'Mga Pangunahing Aral:',
   },
 
   player: {
@@ -289,5 +313,8 @@ export const copy = {
     finalistResult: (label: string, value: string) => `Napanalunan mo: ${label} (${value})!`,
     finalistBokya: 'Bokya! Walang napanalunan.',
     notFinalist: 'Manood sa Stage para sa Pera o Kahon!',
+
+    /** The Deck (ticket 07) */
+    deckActive: 'Tumingin sa Stage para sa presentasyon ng Module 8.',
   },
 } as const;

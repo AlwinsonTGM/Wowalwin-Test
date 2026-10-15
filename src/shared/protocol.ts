@@ -23,7 +23,13 @@ export type ClientMessage =
   | { kind: 'startFinale'; seed?: number }
   | { kind: 'choosePera' }
   | { kind: 'chooseKahon'; seed?: number }
-  | { kind: 'revealKahon' };
+  | { kind: 'revealKahon' }
+  /** Ticket 07: The Deck */
+  | { kind: 'openDeck'; slideIndex?: number }
+  | { kind: 'closeDeck' }
+  | { kind: 'setDeckSlide'; slideIndex: number }
+  | { kind: 'nextDeckSlide' }
+  | { kind: 'prevDeckSlide' };
 
 /** What the server tells every surface. */
 export type ServerMessage =
