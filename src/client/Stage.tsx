@@ -379,10 +379,10 @@ export function Stage({ state, joinUrl }: { state: ShownState; joinUrl: string |
               {state.roster.map((player) => (
                 <li
                   key={player.id}
-                  className={flipped ? (player.standing === 'in' ? 'is-in' : 'is-out') : undefined}
+                  className={flipped ? (player.standing === 'in' ? 'is-in' : 'is-out') : player.standing === 'out' ? 'is-out' : undefined}
                 >
                   <span className="name">{player.name}</span>
-                  {flipped && (
+                  {(flipped || player.standing === 'out') && (
                     <span className="standing">
                       {player.standing === 'in' ? copy.stage.survived : copy.stage.eliminated}
                     </span>

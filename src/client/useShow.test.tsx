@@ -238,4 +238,44 @@ describe('the answer window over the socket', () => {
 
     expect(sent(socket).filter((message) => message.kind === 'submitAnswer')).toEqual([]);
   });
+
+  it('clears the acknowledgement note when a new question arrives', () => {
+    const socket = aPhoneAnswering();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hindi' }));
+    act(() => socket.receive({ kind: 'answerAck', outcome: 'recorded' }));
+
+    expect(screen.getByText(copy.player.answer.recorded)).toBeTruthy();
+
+    // Next question arrives
+    act(() =>
+      socket.receive({
+        kind: 'state',
+        state: {
+          phase: 'answering',
+          roster: [{ id: 'p1', name: 'Ana', connected: true, standing: 'in', simulated: false }],
+          asked: ['q1', 'q2'],
+          question: { id: 'q2', prompt: 'Saan?', options: [{ id: 'b', label: 'Doon' }], askedAt: 1000 },
+          answer: null,
+          simulation: { armed: false, mode: 'mixed' },
+          bracket: null,
+          finale: null,
+          deck: { active: false, slideIndex: 0 },
+        },
+      }),
+    );
+
+    expect(screen.queryByText(copy.player.answer.recorded)).toBeNull();
+  });
+
+  it('clears local storage token when server returns unknownPlayer outcome', () => {
+    localStorage.setItem(TOKEN_KEY, 'stale-token');
+    render(<Phone />);
+    const socket = FakeSocket.last();
+    act(() => socket.open());
+
+    act(() => socket.receive({ kind: 'joinAck', outcome: 'unknownPlayer' }));
+
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+  });
 });

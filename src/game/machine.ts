@@ -74,6 +74,7 @@ export type DeckState = {
   active: boolean;
   slideIndex: number;
   previousPhase?: Phase;
+  openedAt?: number;
 };
 
 export type GameState = {
@@ -522,6 +523,10 @@ export function fold(events: GameEvent[]): GameState {
 
           return {
             ...state,
+            phase: 'started',
+            question: null,
+            answer: null,
+            sealed: [],
             bracket: {
               bouts,
               currentBoutId: currentBout ? currentBout.id : null,
@@ -541,6 +546,8 @@ export function fold(events: GameEvent[]): GameState {
         }
         case 'eliminationReversed': {
           let nextBracket = state.bracket;
+          let reopened = false;
+          const restoredIds = new Set<string>([event.playerId]);
           if (state.bracket !== null) {
             const boutIndex = state.bracket.bouts.findIndex(
               (b) =>
@@ -549,23 +556,30 @@ export function fold(events: GameEvent[]): GameState {
                 b.winnerId !== event.playerId,
             );
             if (boutIndex !== -1) {
-              const bout = state.bracket.bouts[boutIndex]!;
-              const formerWinner = bout.winnerId;
-              const bouts = state.bracket.bouts.map((b, idx) =>
-                idx === boutIndex ? { ...b, winnerId: null, resolvedBy: undefined } : { ...b },
-              );
-              for (let i = boutIndex + 1; i < bouts.length; i++) {
-                if (bouts[i]!.player1Id === formerWinner) {
-                  bouts[i]!.player1Id = null;
-                  bouts[i]!.winnerId = null;
-                  bouts[i]!.resolvedBy = undefined;
+              reopened = true;
+              const bouts = state.bracket.bouts.map((b) => ({ ...b }));
+              bouts[boutIndex]!.winnerId = null;
+              bouts[boutIndex]!.resolvedBy = undefined;
+
+              let cursor: number | null = boutIndex;
+              while (cursor !== null && cursor < 6) {
+                const parentIndex: number = cursor < 4 ? 4 + Math.floor(cursor / 2) : 6;
+                const parentBout = bouts[parentIndex]!;
+                if (parentBout.winnerId !== null) {
+                  const loserId =
+                    parentBout.winnerId === parentBout.player1Id ? parentBout.player2Id : parentBout.player1Id;
+                  if (loserId) restoredIds.add(loserId);
+                  parentBout.winnerId = null;
+                  parentBout.resolvedBy = undefined;
                 }
-                if (bouts[i]!.player2Id === formerWinner) {
-                  bouts[i]!.player2Id = null;
-                  bouts[i]!.winnerId = null;
-                  bouts[i]!.resolvedBy = undefined;
+                if (cursor % 2 === 0) {
+                  parentBout.player1Id = null;
+                } else {
+                  parentBout.player2Id = null;
                 }
+                cursor = parentIndex;
               }
+
               const { bouts: propagatedBouts, finalistId } = propagateBracket(bouts);
               const currentBout = propagatedBouts.find(
                 (b) => b.winnerId === null && b.player1Id !== null && b.player2Id !== null,
@@ -582,8 +596,13 @@ export function fold(events: GameEvent[]): GameState {
           return {
             ...state,
             bracket: nextBracket,
+            phase: reopened ? 'started' : state.phase,
+            question: reopened ? null : state.question,
+            answer: reopened ? null : state.answer,
+            sealed: reopened ? [] : state.sealed,
+            finale: nextBracket?.finalistId ? state.finale : null,
             roster: state.roster.map((player) =>
-              player.id === event.playerId ? { ...player, standing: 'in' } : player,
+              restoredIds.has(player.id) ? { ...player, standing: 'in' } : player,
             ),
           };
         }
@@ -644,15 +663,27 @@ export function fold(events: GameEvent[]): GameState {
                   ? Math.max(0, Math.min(event.slideIndex, deckSlides.length - 1))
                   : state.deck.slideIndex,
               previousPhase: state.phase,
+              openedAt: event.at,
             },
           };
         }
         case 'deckClosed': {
+          const pausedMs =
+            state.deck.openedAt !== undefined && event.at !== undefined
+              ? Math.max(0, event.at - state.deck.openedAt)
+              : 0;
+          const question =
+            state.question && state.phase === 'answering' && pausedMs > 0
+              ? { ...state.question, askedAt: state.question.askedAt + pausedMs }
+              : state.question;
+
           return {
             ...state,
+            question,
             deck: {
               ...state.deck,
               active: false,
+              openedAt: undefined,
             },
           };
         }
@@ -676,6 +707,9 @@ export function fold(events: GameEvent[]): GameState {
             b.id === bout.id ? { ...b, winnerId: event.winnerId, resolvedBy: 'manual' as const } : b,
           );
           const { bouts: propagatedBouts, finalistId } = propagateBracket(updatedBouts);
+          const nextBout = propagatedBouts.find(
+            (b) => b.winnerId === null && b.player1Id !== null && b.player2Id !== null,
+          );
 
           let answer = state.answer;
           if (answer === null && state.question) {
@@ -702,7 +736,7 @@ export function fold(events: GameEvent[]): GameState {
             bracket: {
               ...state.bracket,
               bouts: propagatedBouts,
-              currentBoutId: bout.id,
+              currentBoutId: state.question === null ? (nextBout ? nextBout.id : null) : bout.id,
               finalistId,
             },
           };
@@ -748,7 +782,7 @@ export type ResumePlan =
   | { outcome: 'unknownPlayer' };
 
 export function planResume(state: GameState, playerId: string): ResumePlan {
-  if (!state.roster.some((p) => p.id === playerId)) return { outcome: 'unknownPlayer' };
+  if (!state.roster.some((p) => p.id === playerId && !p.simulated)) return { outcome: 'unknownPlayer' };
 
   return { outcome: 'resumed', event: { type: 'playerReconnected', playerId } };
 }
@@ -778,7 +812,11 @@ export type CullOver = 'cullComplete' | 'queueEmpty' | null;
  * Before anything has been asked this is `null` however small the room is, so
  * the first question always goes up.
  */
-export const cullOver = (state: Pick<GameState, 'roster' | 'asked'>, pool: PoolName = 'cull'): CullOver => {
+export const cullOver = (
+  state: Pick<GameState, 'roster' | 'asked'> & Partial<Pick<GameState, 'phase'>>,
+  pool: PoolName = 'cull',
+): CullOver => {
+  if (state.phase === 'answering' || state.phase === 'revealPending') return null;
   if (state.asked.length === 0) return null;
   if (survivors(state).length <= showConfig.cull.targetPlayers) return 'cullComplete';
   return questionsLeft(state, pool) === 0 ? 'queueEmpty' : null;
@@ -788,7 +826,12 @@ export const cullOver = (state: Pick<GameState, 'roster' | 'asked'>, pool: PoolN
  *  is still unmet — the one moment a rehearsal fails for a reason nobody saw.
  *  A cull that has not started yet is not one of them: warning before the first
  *  question is noise in every show. */
-export const cullLowOnQuestions = (state: Pick<GameState, 'roster' | 'asked'>): boolean =>
+export const cullLowOnQuestions = (
+  state: Pick<GameState, 'roster' | 'asked'> & Partial<Pick<GameState, 'phase' | 'bracket'>>,
+): boolean =>
+  !state.bracket &&
+  state.phase !== 'answering' &&
+  state.phase !== 'revealPending' &&
   state.asked.length > 0 &&
   cullOver(state) === null &&
   questionsLeft(state) <= showConfig.cull.queueWarning;
@@ -823,7 +866,12 @@ export function planNextQuestion(state: GameState, at: number, pool?: PoolName):
     if (!nextBout) return { outcome: 'notReady' };
 
     const boutPool: PoolName = pool ?? 'bout';
-    const next = questionsIn(boutPool).find((question) => !state.asked.includes(question.id));
+    const poolQuestions = questionsIn(boutPool);
+    const unaskedBout = poolQuestions.find((question) => !state.asked.includes(question.id));
+    const next =
+      unaskedBout ??
+      questionsIn('cull').find((question) => !state.asked.includes(question.id)) ??
+      (poolQuestions.length > 0 ? poolQuestions[state.asked.length % poolQuestions.length] : undefined);
     if (!next) return { outcome: 'queueEmpty' };
 
     return { outcome: 'presented', event: { type: 'questionPresented', questionId: next.id, at } };
@@ -988,7 +1036,12 @@ export function planSimulateAnswers(state: GameState, mode: SimulationMode): Ans
   if (state.phase !== 'answering' || !question || !bank) return { answers: [] };
 
   const wrongId = question.options.find((option) => option.id !== bank.correctOptionId)?.id;
-  const room = state.roster.filter((player) => player.simulated && player.standing === 'in');
+  const room = state.roster.filter(
+    (player) =>
+      player.simulated &&
+      player.standing === 'in' &&
+      (state.bracket === null || isPlayerInCurrentBout(state, player.id)),
+  );
 
   const answers = room.flatMap((player, index) => {
     const optionId = simulatedOption(mode, index, bank.correctOptionId, wrongId);
@@ -1119,17 +1172,17 @@ export function planResolveBoutDirectly(
 }
 
 /** Currently active bout, or null if between bouts or bracket not started. */
-export const activeBout = (state: Pick<GameState, 'bracket'>): Bout | null => {
+export function activeBout(state: Pick<GameState, 'bracket'>): Bout | null {
   if (!state.bracket || !state.bracket.currentBoutId) return null;
   return state.bracket.bouts.find((b) => b.id === state.bracket!.currentBoutId) ?? null;
-};
+}
 
 /** Whether a given Player is one of the two active Players in the current bout. */
-export const isPlayerInCurrentBout = (state: Pick<GameState, 'bracket'>, playerId: string): boolean => {
+export function isPlayerInCurrentBout(state: Pick<GameState, 'bracket'>, playerId: string): boolean {
   const current = activeBout(state);
   if (!current) return false;
   return current.player1Id === playerId || current.player2Id === playerId;
-};
+}
 
 /** Draws a prize from the prize table using an injected PRNG or generator. */
 export function drawKahonPrize(
@@ -1231,7 +1284,7 @@ export type OpenDeckPlan =
   | { outcome: 'alreadyOpen' };
 
 /** Presenter switches the Stage into the Deck from any phase. */
-export function planOpenDeck(state: GameState, slideIndex?: number): OpenDeckPlan {
+export function planOpenDeck(state: GameState, slideIndex?: number, at?: number): OpenDeckPlan {
   if (state.deck.active) return { outcome: 'alreadyOpen' };
 
   return {
@@ -1239,6 +1292,7 @@ export function planOpenDeck(state: GameState, slideIndex?: number): OpenDeckPla
     event: {
       type: 'deckOpened',
       ...(slideIndex !== undefined ? { slideIndex } : {}),
+      ...(at !== undefined ? { at } : {}),
     },
   };
 }
@@ -1248,12 +1302,15 @@ export type CloseDeckPlan =
   | { outcome: 'notOpen' };
 
 /** Presenter returns Stage from the Deck back to the interrupted game phase. */
-export function planCloseDeck(state: GameState): CloseDeckPlan {
+export function planCloseDeck(state: GameState, at?: number): CloseDeckPlan {
   if (!state.deck.active) return { outcome: 'notOpen' };
 
   return {
     outcome: 'closed',
-    event: { type: 'deckClosed' },
+    event: {
+      type: 'deckClosed',
+      ...(at !== undefined ? { at } : {}),
+    },
   };
 }
 

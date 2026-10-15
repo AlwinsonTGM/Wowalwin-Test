@@ -172,6 +172,11 @@ describe('a phone that drops', () => {
     expect(planResume(fold([]), 'p9').outcome).toBe('unknownPlayer');
   });
 
+  it('refuses to resume a simulated player', () => {
+    const state = fold(seedRoom(3));
+    expect(planResume(state, 'player-1').outcome).toBe('unknownPlayer');
+  });
+
   it('ignores presence for a Player who was never on the roster', () => {
     const state = fold([aPlayer('p1', 'Ana'), { type: 'playerDisconnected', playerId: 'ghost' }]);
 
@@ -506,7 +511,8 @@ function driveTheSeededCull(size: number, mode: SimulationMode) {
     const next = planNextQuestion(state, round * 1000);
     if (next.outcome !== 'presented') break;
 
-    log.push(next.event, ...planSimulateAnswers(fold(log), mode).answers, ...closed);
+    log.push(next.event);
+    log.push(...planSimulateAnswers(fold(log), mode).answers, ...closed);
     state = fold(log);
   }
 
@@ -590,6 +596,25 @@ describe('the cull', () => {
 
     expect(cullOver(running)).toBeNull();
     expect(planNextQuestion(running, 1000).outcome).toBe('presented');
+  });
+
+  it('returns null for cullOver while a question is in answering or revealPending', () => {
+    const askingState = fold([
+      ...aRoom(8),
+      firstQuestion(),
+    ]);
+    expect(askingState.phase).toBe('answering');
+    expect(cullOver(askingState)).toBeNull();
+    expect(cullLowOnQuestions(askingState)).toBe(false);
+
+    const pendingState = fold([
+      ...aRoom(8),
+      firstQuestion(),
+      { type: 'answerWindowClosed' },
+    ]);
+    expect(pendingState.phase).toBe('revealPending');
+    expect(cullOver(pendingState)).toBeNull();
+    expect(cullLowOnQuestions(pendingState)).toBe(false);
   });
 
   it('warns about the queue only while the target is unmet', () => {
@@ -708,7 +733,11 @@ describe('the cull, whatever the room does', () => {
       const state = driveTheSeededCull(12, mode);
 
       expect(cullOver(state)).not.toBeNull();
-      expect(survivors(state).length).toBeLessThanOrEqual(showConfig.cull.targetPlayers);
+      if (mode === 'correct') {
+        expect(cullOver(state)).toBe('queueEmpty');
+      } else {
+        expect(survivors(state).length).toBeLessThanOrEqual(showConfig.cull.targetPlayers);
+      }
     }
   });
 });
@@ -826,6 +855,36 @@ describe('a seeded room answering', () => {
 
     expect(answers.map((answer) => answer.playerId)).not.toContain(out);
     expect(answers).toHaveLength(3);
+  });
+
+  it('mixed simulation mode in bracket only considers active bout fighters, eliminating 0-submission ties regardless of roster index', () => {
+    const simulatedEntrants = seedRoom(8);
+    const entrantIds = simulatedEntrants.map((e) => (e as any).playerId);
+    const bracketEvents: GameEvent[] = [
+      ...simulatedEntrants,
+      showStarted,
+      firstQuestion(),
+      ...entrantIds.map((id) => submits(id, questionOne.correctOptionId)),
+      ...closed,
+      // Put players at roster index 2 and 5 (which would both be silent % 3 === 2 in global roster) into bout 1
+      { type: 'bracketSeeded', entrants: [entrantIds[2]!, entrantIds[5]!, entrantIds[0]!, entrantIds[1]!, entrantIds[3]!, entrantIds[4]!, entrantIds[6]!, entrantIds[7]!] },
+    ];
+
+    const state = fold(bracketEvents);
+    const qPlan = planNextQuestion(state, 1000);
+    expect(qPlan.outcome).toBe('presented');
+    if (qPlan.outcome !== 'presented') return;
+
+    const askingBout = fold([...bracketEvents, qPlan.event]);
+    const answerPlan = planSimulateAnswers(askingBout, 'mixed');
+
+    // Even though these players are at index 2 and 5 in the roster,
+    // in the bout room they are indices 0 and 1, so both submit answers (correct and wrong)
+    expect(answerPlan.answers).toHaveLength(2);
+    const bout = activeBout(askingBout)!;
+    const submittedIds = answerPlan.answers.map((a) => a.playerId);
+    expect(submittedIds).toContain(bout.player1Id);
+    expect(submittedIds).toContain(bout.player2Id);
   });
 });
 
@@ -964,6 +1023,32 @@ describe('the bracket', () => {
       expect(seeded.bracket!.bouts).toHaveLength(7);
       expect(seeded.bracket!.currentBoutId).toBe('bout-1');
       expect(activeBout(seeded)?.id).toBe('bout-1');
+    });
+
+    it('resets phase, question, answer, and sealed when bracket is seeded from cull', () => {
+      const state = finishCullWith(8);
+      expect(state.phase).toBe('revealed');
+      expect(state.question).not.toBeNull();
+      expect(state.answer).not.toBeNull();
+
+      const plan = planSeedBracket(state, 42);
+      expect(plan.outcome).toBe('seeded');
+      if (plan.outcome !== 'seeded') return;
+
+      const seeded = fold([
+        ...Array.from({ length: 8 }, (_, i) => aPlayer(`p${i + 1}`, `Player ${i + 1}`)),
+        showStarted,
+        firstQuestion(),
+        ...Array.from({ length: 8 }, (_, i) => submits(`p${i + 1}`, questionOne.correctOptionId)),
+        ...closed,
+        plan.event,
+      ]);
+
+      expect(seeded.phase).toBe('started');
+      expect(seeded.question).toBeNull();
+      expect(seeded.answer).toBeNull();
+      expect(seeded.sealed).toEqual([]);
+      expect(planRerunBout(seeded).outcome).toBe('notInBout');
     });
 
     it('symmetrically places byes when fewer than 8 players advance', () => {
@@ -1282,6 +1367,83 @@ describe('the bracket', () => {
       expect(resetBout.winnerId).toBeNull();
       // Active bout points back to Bout 1
       expect(activeBout(reversed)?.id).toBe(bout.id);
+    });
+
+    it('reversing a quarterfinal after semifinal was played restores players to in, clears SF, and removes invalid finalist', () => {
+      const log: GameEvent[] = [
+        ...Array.from({ length: 8 }, (_, i) => aPlayer(`p${i + 1}`, `Player ${i + 1}`)),
+        showStarted,
+        firstQuestion(),
+        ...Array.from({ length: 8 }, (_, i) => submits(`p${i + 1}`, questionOne.correctOptionId)),
+        ...closed,
+        { type: 'bracketSeeded', entrants: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'] },
+      ];
+
+      // QF1: p1 vs p2 -> p1 wins, p2 eliminated
+      log.push({ type: 'questionPresented', questionId: boutQuestions[0]!.id, at: 1000 });
+      log.push(submits('p1', boutQuestions[0]!.correctOptionId));
+      log.push({ type: 'answerWindowClosed' });
+      log.push({ type: 'revealTriggered' });
+
+      // QF2: p3 vs p4 -> p3 wins, p4 eliminated
+      log.push({ type: 'questionPresented', questionId: boutQuestions[1]!.id, at: 2000 });
+      log.push(submits('p3', boutQuestions[1]!.correctOptionId));
+      log.push({ type: 'answerWindowClosed' });
+      log.push({ type: 'revealTriggered' });
+
+      // QF3: p5 vs p6 -> p5 wins, p6 eliminated
+      log.push({ type: 'questionPresented', questionId: boutQuestions[2]!.id, at: 3000 });
+      log.push(submits('p5', boutQuestions[2]!.correctOptionId));
+      log.push({ type: 'answerWindowClosed' });
+      log.push({ type: 'revealTriggered' });
+
+      // QF4: p7 vs p8 -> p7 wins, p8 eliminated
+      log.push({ type: 'questionPresented', questionId: boutQuestions[3]!.id, at: 4000 });
+      log.push(submits('p7', boutQuestions[3]!.correctOptionId));
+      log.push({ type: 'answerWindowClosed' });
+      log.push({ type: 'revealTriggered' });
+
+      // SF1: p1 vs p3 -> p3 wins, p1 eliminated, p3 advances to Final (bout-7)
+      log.push({ type: 'questionPresented', questionId: boutQuestions[4]!.id, at: 5000 });
+      log.push(submits('p3', boutQuestions[4]!.correctOptionId));
+      log.push({ type: 'answerWindowClosed' });
+      log.push({ type: 'revealTriggered' });
+
+      const beforeReverse = fold(log);
+      expect(beforeReverse.roster.find((p) => p.id === 'p1')?.standing).toBe('out');
+      expect(beforeReverse.roster.find((p) => p.id === 'p2')?.standing).toBe('out');
+      expect(beforeReverse.bracket!.bouts[4]!.winnerId).toBe('p3');
+      expect(beforeReverse.bracket!.bouts[6]!.player1Id).toBe('p3');
+
+      // Operator reverses elimination of p2 (lost QF1)
+      const revPlan = planReverseElimination(beforeReverse, 'p2');
+      expect(revPlan.outcome).toBe('reversed');
+      if (revPlan.outcome !== 'reversed') return;
+
+      log.push(revPlan.event);
+      const afterReverse = fold(log);
+
+      // Both p2 and p1 (who lost in SF1) must be restored to 'in'
+      expect(afterReverse.roster.find((p) => p.id === 'p2')?.standing).toBe('in');
+      expect(afterReverse.roster.find((p) => p.id === 'p1')?.standing).toBe('in');
+
+      // Bout 1 (QF1) is reopened
+      expect(afterReverse.bracket!.bouts[0]!.winnerId).toBeNull();
+
+      // Bout 5 (SF1) is cleared
+      expect(afterReverse.bracket!.bouts[4]!.winnerId).toBeNull();
+      expect(afterReverse.bracket!.bouts[4]!.player1Id).toBeNull();
+      expect(afterReverse.bracket!.bouts[4]!.player2Id).toBe('p3');
+
+      // Bout 7 (Final) player1Id is cleared, finalistId is null
+      expect(afterReverse.bracket!.bouts[6]!.player1Id).toBeNull();
+      expect(afterReverse.bracket!.finalistId).toBeNull();
+
+      // Current bout is back to QF1 (bout-1)
+      expect(afterReverse.bracket!.currentBoutId).toBe('bout-1');
+      expect(afterReverse.phase).toBe('started');
+      expect(afterReverse.question).toBeNull();
+      expect(afterReverse.answer).toBeNull();
     });
   });
 
@@ -1608,6 +1770,44 @@ describe('the bracket', () => {
       expect(resumedState.sealed[0]?.playerId).toBe('p1');
     });
 
+    it('shifts question askedAt by paused duration when closing deck in answering phase', () => {
+      const stateBeforeDeck = fold([
+        aPlayer('p1', 'Ana'),
+        showStarted,
+        firstQuestion(1000), // askedAt = 1000
+      ]);
+
+      // Open deck at timestamp 5000 (4 seconds into question)
+      const openPlan = planOpenDeck(stateBeforeDeck, undefined, 5000);
+      expect(openPlan.outcome).toBe('opened');
+      if (openPlan.outcome !== 'opened') return;
+
+      const stateInDeck = fold([
+        aPlayer('p1', 'Ana'),
+        showStarted,
+        firstQuestion(1000),
+        openPlan.event,
+      ]);
+      expect(stateInDeck.deck.openedAt).toBe(5000);
+
+      // Close deck at timestamp 15000 (paused for 10000ms)
+      const closePlan = planCloseDeck(stateInDeck, 15000);
+      expect(closePlan.outcome).toBe('closed');
+      if (closePlan.outcome !== 'closed') return;
+
+      const stateAfterDeck = fold([
+        aPlayer('p1', 'Ana'),
+        showStarted,
+        firstQuestion(1000),
+        openPlan.event,
+        closePlan.event,
+      ]);
+
+      // askedAt should have shifted from 1000 to 1000 + 10000 = 11000
+      expect(stateAfterDeck.question?.askedAt).toBe(11000);
+      expect(stateAfterDeck.deck.openedAt).toBeUndefined();
+    });
+
     it('refuses to open deck if already open, and refuses to close if not open', () => {
       const closedState = fold([]);
       expect(planCloseDeck(closedState).outcome).toBe('notOpen');
@@ -1807,6 +2007,45 @@ describe('the bracket', () => {
       expect(resolved.bracket?.finalistId).toBe('p2');
       expect(resolved.roster.find((p) => p.id === 'p1')?.standing).toBe('out');
       expect(resolved.roster.find((p) => p.id === 'p2')?.standing).toBe('in');
+    });
+
+    it('advances currentBoutId on direct bout resolution when no question is active', () => {
+      // Direct resolution of bout-1 without presenting a question
+      const resolvedBout1 = fold([
+        ...bracketEvents,
+        { type: 'boutResolvedDirectly', boutId: 'bout-1', winnerId: 'p1' },
+      ]);
+
+      // currentBoutId should advance to bout-2 immediately!
+      expect(resolvedBout1.bracket?.currentBoutId).toBe('bout-2');
+      expect(activeBout(resolvedBout1)?.id).toBe('bout-2');
+
+      // Then direct resolution of bout-2 without presenting a question
+      const resolvedBout2 = fold([
+        ...bracketEvents,
+        { type: 'boutResolvedDirectly', boutId: 'bout-1', winnerId: 'p1' },
+        { type: 'boutResolvedDirectly', boutId: 'bout-2', winnerId: 'p3' },
+      ]);
+
+      expect(resolvedBout2.bracket?.currentBoutId).toBe('bout-3');
+      expect(activeBout(resolvedBout2)?.id).toBe('bout-3');
+    });
+
+    it('recycles questions when bout and cull question pools are exhausted during bracket', () => {
+      const state = fold(bracketEvents);
+      // Mark all bout questions and cull questions as already asked
+      const allAsked = [...boutQuestions.map((q) => q.id), ...cullQuestions.map((q) => q.id)];
+      const exhaustedState = {
+        ...state,
+        asked: allAsked,
+      };
+
+      const plan = planNextQuestion(exhaustedState, 5000);
+      expect(plan.outcome).toBe('presented');
+      if (plan.outcome === 'presented') {
+        const expectedRecycledId = boutQuestions[allAsked.length % boutQuestions.length]!.id;
+        expect(plan.event.questionId).toBe(expectedRecycledId);
+      }
     });
   });
 });

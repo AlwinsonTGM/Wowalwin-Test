@@ -594,9 +594,16 @@ describe('the cull over the wire', () => {
 
       presenter.send({ kind: 'setSimulation', armed: false, mode: 'mixed' });
       await stateWhere(presenter, (state) => state.simulation.mode === 'mixed');
-      await askAndClose(presenter, stage);
+      presenter.send({ kind: 'presentQuestion' });
+      await stateWhere(stage, (state) => state.phase === 'answering');
 
+      stage.drain();
       presenter.send({ kind: 'simulateAnswers' });
+      await stage.next('state');
+
+      await vi.advanceTimersByTimeAsync(showConfig.timings.answerSeconds * 1000 + 100);
+      await stateWhere(stage, (state) => state.phase === 'revealPending');
+
       presenter.send({ kind: 'reveal' });
       const revealed = await stateWhere(stage, (state) => state.answer !== null);
 
@@ -604,6 +611,27 @@ describe('the cull over the wire', () => {
       // the five who are in the room, and at least one.
       expect(revealed.answer?.submissions.length).toBeGreaterThan(0);
       expect(revealed.answer?.submissions.length).toBeLessThan(5);
+    });
+  });
+
+  it('does not auto-submit simulated answers when simulation is disarmed', async () => {
+    await withCull(async (port) => {
+      const { stage, presenter } = await aSeededCull(port, 4);
+
+      presenter.send({ kind: 'setSimulation', armed: false, mode: 'correct' });
+      await stateWhere(presenter, (state) => !state.simulation.armed);
+
+      presenter.send({ kind: 'presentQuestion' });
+      await stateWhere(stage, (state) => state.phase === 'answering');
+
+      // Let the window close naturally without simulateAnswers being called
+      await vi.advanceTimersByTimeAsync(showConfig.timings.answerSeconds * 1000 + 100);
+      await stateWhere(stage, (state) => state.phase === 'revealPending');
+
+      presenter.send({ kind: 'reveal' });
+      const revealed = await stateWhere(stage, (state) => state.answer !== null);
+
+      expect(revealed.answer?.submissions).toHaveLength(0);
     });
   });
 
@@ -1275,6 +1303,69 @@ describe('the event log on disk', () => {
         expect(onStage.state.roster.find((p) => p.id === 'p1')?.standing).toBe('out');
         expect(onStage.state.roster.find((p) => p.id === 'p2')?.standing).toBe('in');
       }, seedLog);
+    });
+
+    it('does not reset suspense timer when a client disconnects or reconnects', async () => {
+      vi.useFakeTimers();
+      try {
+        const entrants = ['p1', 'p2'];
+        const suspenseLog: GameEvent[] = [
+          { type: 'playerJoined', playerId: 'p1', name: 'Ana' },
+          { type: 'playerJoined', playerId: 'p2', name: 'Ben' },
+          { type: 'showStarted' },
+          { type: 'questionPresented', questionId: cullQuestions[0]!.id, at: 1000 },
+          { type: 'answerSubmitted', playerId: 'p1', optionId: cullQuestions[0]!.correctOptionId },
+          { type: 'answerSubmitted', playerId: 'p2', optionId: cullQuestions[0]!.correctOptionId },
+          { type: 'answerWindowClosed' },
+          { type: 'revealTriggered' },
+          { type: 'bracketSeeded', entrants },
+          { type: 'questionPresented', questionId: boutQuestions[0]!.id, at: 2000 },
+          { type: 'answerSubmitted', playerId: 'p1', optionId: boutQuestions[0]!.correctOptionId },
+          { type: 'answerWindowClosed' },
+        ];
+
+        await withServer(async (port) => {
+          const presenter = surface(port);
+          const p2Phone = surface(port);
+          await Promise.all([presenter.ready, p2Phone.ready]);
+          await Promise.all([presenter.next('state'), p2Phone.next('state')]);
+
+          p2Phone.send({ kind: 'join', token: 'p2' });
+          await p2Phone.next('joinAck');
+
+          await stateWhere(presenter, (s) => s.phase === 'revealPending');
+
+          // Advance 3s into the 5s suspense window
+          await vi.advanceTimersByTimeAsync(3000);
+
+          // p2 drops connection (NON_TIMER_EVENT: playerDisconnected)
+          p2Phone.drop();
+          await stateWhere(presenter, (s) => s.roster.find((p) => p.id === 'p2')?.connected === false);
+
+          // Advance another 2.1s (total 5.1s from start of suspense)
+          await vi.advanceTimersByTimeAsync(2100);
+
+          // Reveal must have occurred after 5.1s, not delayed by an extra 5s!
+          const revealedState = await stateWhere(presenter, (s) => s.phase === 'revealed');
+          expect(revealedState.phase).toBe('revealed');
+        }, suspenseLog);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('returns unknownPlayer instead of nameRequired for stale token with no name', async () => {
+      await withServer(async (port) => {
+        const phone = surface(port);
+        await phone.ready;
+        await phone.next('state');
+
+        // Phone reconnects with an old token but no name
+        phone.send({ kind: 'join', token: 'stale-token-123' });
+        const ack = (await phone.next('joinAck')) as Extract<ServerMessage, { kind: 'joinAck' }>;
+
+        expect(ack.outcome).toBe('unknownPlayer');
+      });
     });
   });
 });

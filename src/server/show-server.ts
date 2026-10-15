@@ -162,6 +162,15 @@ export async function startShowServer({
   let suspenseTimer: NodeJS.Timeout | undefined;
   let winnerTimer: NodeJS.Timeout | undefined;
 
+  const NON_TIMER_EVENTS = new Set<GameEvent['type']>([
+    'playerJoined',
+    'playerDisconnected',
+    'playerReconnected',
+    'answerSubmitted',
+    'simulationSet',
+    'deckSlideSet',
+  ]);
+
   const record = (event: GameEvent) => {
     events.push(event);
     state = fold(events);
@@ -171,12 +180,12 @@ export async function startShowServer({
     const payload = JSON.stringify({ kind: 'state', state: shown(state) } satisfies ServerMessage);
     for (const client of wss.clients) if (client.readyState === client.OPEN) client.send(payload);
 
-    armTimers();
+    if (!NON_TIMER_EVENTS.has(event.type)) armTimers();
 
     // An armed rehearsal room answers the moment its question goes up, not when
     // somebody remembers to press anything. Keyed off the question rather than
     // off `record`, so an answer cannot cause another answer.
-    if (event.type === 'questionPresented') {
+    if (event.type === 'questionPresented' && state.simulation.armed) {
       for (const answer of planSimulateAnswers(state, state.simulation.mode).answers) record(answer);
     }
   };
@@ -389,14 +398,14 @@ export async function startShowServer({
 
       if (message.kind === 'openDeck') {
         if (!isPresenter) return;
-        const plan = planOpenDeck(state, message.slideIndex);
+        const plan = planOpenDeck(state, message.slideIndex, Date.now());
         if (plan.outcome === 'opened') record(plan.event);
         return;
       }
 
       if (message.kind === 'closeDeck') {
         if (!isPresenter) return;
-        const plan = planCloseDeck(state);
+        const plan = planCloseDeck(state, Date.now());
         if (plan.outcome === 'closed') record(plan.event);
         return;
       }
@@ -428,6 +437,11 @@ export async function startShowServer({
         claim(resume.event.playerId);
         record(resume.event);
         send(client, { kind: 'joinAck', outcome: 'resumed', token: resume.event.playerId });
+        return;
+      }
+
+      if (known && message.name === undefined) {
+        send(client, { kind: 'joinAck', outcome: state.phase !== 'joining' ? 'showStarted' : 'unknownPlayer' });
         return;
       }
 

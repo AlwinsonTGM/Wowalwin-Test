@@ -194,6 +194,28 @@ describe('the one mute control', () => {
     expect(localStorage.getItem(MUTE_KEY)).toBe('false');
     expect(heard).toEqual(['tick']);
   });
+
+  it('mutes repeating tick when deck is active mid-question', () => {
+    vi.useFakeTimers();
+    const stateAnswering = aState('answering');
+    const { rerender } = render(<Presenter state={stateAnswering} />);
+
+    // Tick plays during answering
+    act(() => void vi.advanceTimersByTime(showConfig.timings.tickSeconds * 1000));
+    expect(heard).toContain('tick');
+    heard.length = 0;
+
+    // Deck opened mid-question
+    const stateDeckActive: ShownState = {
+      ...stateAnswering,
+      deck: { active: true, slideIndex: 0 },
+    };
+    rerender(<Presenter state={stateDeckActive} />);
+
+    // Advance timers while deck is active -> no tick heard!
+    act(() => void vi.advanceTimersByTime(showConfig.timings.tickSeconds * 3000));
+    expect(heard).toEqual([]);
+  });
 });
 
 describe('a sound file that will not play', () => {

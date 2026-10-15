@@ -42,8 +42,8 @@ export type GameEvent =
   | { type: 'kahonDrawn'; prizeId: string; seed?: number }
   | { type: 'kahonRevealed' }
   /** Ticket 07: The Deck (HTML slides safety net & module presentation) */
-  | { type: 'deckOpened'; slideIndex?: number }
-  | { type: 'deckClosed' }
+  | { type: 'deckOpened'; slideIndex?: number; at?: number }
+  | { type: 'deckClosed'; at?: number }
   | { type: 'deckSlideSet'; slideIndex: number }
   /** Ticket 08: Fallback and rehearsal (direct bout resolution) */
   | { type: 'boutResolvedDirectly'; boutId: string; winnerId: string };

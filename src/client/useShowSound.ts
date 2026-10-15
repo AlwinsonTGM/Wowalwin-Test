@@ -39,7 +39,7 @@ export function useShowSound(state: ShownState) {
     sound.current?.setMuted(muted);
   }, [muted]);
 
-  const answering = state.phase === 'answering';
+  const answering = state.phase === 'answering' && !state.deck?.active;
 
   useEffect(() => {
     if (!answering || muted) return;

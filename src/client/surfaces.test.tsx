@@ -279,6 +279,24 @@ describe('the Stage', () => {
     expect(outName.className).toContain('is-out');
     expect(container.querySelectorAll('.names li')).toHaveLength(2);
   });
+
+  it('maintains is-out and eliminated tag for already-eliminated players during answering in Round 2+', () => {
+    const roster = [
+      { ...ana, standing: 'in' as const },
+      { ...ben, standing: 'out' as const },
+    ];
+    // In round 2, question is presented (phase: 'answering', flipped is false)
+    render(<Stage state={asking({ roster, phase: 'answering' })} joinUrl={JOIN_URL} />);
+
+    const benLi = screen.getByText('Ben').closest('li')!;
+    expect(benLi.className).toContain('is-out');
+    expect(screen.getByText(copy.stage.eliminated)).toBeTruthy();
+
+    const anaLi = screen.getByText('Ana').closest('li')!;
+    expect(anaLi.className).not.toContain('is-in');
+    expect(anaLi.className).not.toContain('is-out');
+    expect(screen.queryByText(copy.stage.survived)).toBeNull();
+  });
 });
 
 describe('the Backbone during a question', () => {

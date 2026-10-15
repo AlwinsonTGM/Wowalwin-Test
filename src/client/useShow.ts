@@ -67,7 +67,12 @@ export function useShow() {
       ws.onmessage = (event) => {
         const message = JSON.parse(event.data) as ServerMessage;
 
-        if (message.kind === 'state') setState(message.state);
+        if (message.kind === 'state') {
+          setState((prev) => {
+            if (prev.question?.id !== message.state.question?.id) setAnswerAck(null);
+            return message.state;
+          });
+        }
         if (message.kind === 'serverInfo') {
           setJoinHost(message.joinHost);
           if (message.isRehearsal !== undefined) setIsRehearsal(message.isRehearsal);
@@ -78,6 +83,10 @@ export function useShow() {
           if (message.token && isPlayerPhone()) {
             setToken(message.token);
             localStorage.setItem(TOKEN_KEY, message.token);
+          }
+          if (message.outcome === 'unknownPlayer' && isPlayerPhone()) {
+            localStorage.removeItem(TOKEN_KEY);
+            setToken(null);
           }
         }
       };

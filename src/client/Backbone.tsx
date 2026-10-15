@@ -86,6 +86,10 @@ export function Backbone({
   const [behalfOptionId, setBehalfOptionId] = useState<string>('');
 
   const currentBout = activeBout(state);
+  const resolvableBout =
+    currentBout?.winnerId === null
+      ? currentBout
+      : (state.bracket?.bouts.find((b) => b.winnerId === null && b.player1Id !== null && b.player2Id !== null) ?? null);
   const isBoutTied = state.bracket !== null && state.phase === 'revealed' && currentBout?.winnerId === null && state.answer !== null;
 
   const eligiblePlayers =
@@ -255,28 +259,28 @@ export function Backbone({
 
             {isBoutTied && <p className="warning">{copy.stage.tieNoSubmissions}</p>}
 
-            {currentBout && currentBout.winnerId === null && currentBout.player1Id && currentBout.player2Id && onResolveBoutDirectly && (
+            {resolvableBout && resolvableBout.winnerId === null && resolvableBout.player1Id && resolvableBout.player2Id && onResolveBoutDirectly && (
               <div className="direct-resolution">
                 <span className="label">{copy.backbone.directResolutionHeading}: </span>
                 <div className="direct-resolution-buttons">
                   <button
                     type="button"
                     className="ghost ghost--small"
-                    onClick={() => onResolveBoutDirectly(currentBout.id, currentBout.player1Id!)}
+                    onClick={() => onResolveBoutDirectly(resolvableBout.id, resolvableBout.player1Id!)}
                     disabled={connection !== 'online'}
                   >
                     {copy.backbone.declareWinner(
-                      state.roster.find((p) => p.id === currentBout.player1Id)?.name ?? 'Player 1',
+                      state.roster.find((p) => p.id === resolvableBout.player1Id)?.name ?? 'Player 1',
                     )}
                   </button>
                   <button
                     type="button"
                     className="ghost ghost--small"
-                    onClick={() => onResolveBoutDirectly(currentBout.id, currentBout.player2Id!)}
+                    onClick={() => onResolveBoutDirectly(resolvableBout.id, resolvableBout.player2Id!)}
                     disabled={connection !== 'online'}
                   >
                     {copy.backbone.declareWinner(
-                      state.roster.find((p) => p.id === currentBout.player2Id)?.name ?? 'Player 2',
+                      state.roster.find((p) => p.id === resolvableBout.player2Id)?.name ?? 'Player 2',
                     )}
                   </button>
                 </div>
@@ -457,16 +461,20 @@ export function Backbone({
             bracket. Whether that state should be reachable is ticket 04's call;
             saying "these are the ones for the bracket" when the list is empty is
             simply untrue, and the Presenter is the one who has to act on it. */}
-        {over !== null && alive === 0 ? (
-          <p className="warning">{copy.backbone.cullEmpty}</p>
-        ) : (
+        {state.bracket === null && (
           <>
-            {over === 'cullComplete' && <p className="note">{copy.backbone.cullComplete}</p>}
-            {over === 'queueEmpty' && <p className="warning">{copy.backbone.queueSpent}</p>}
+            {over !== null && alive === 0 ? (
+              <p className="warning">{copy.backbone.cullEmpty}</p>
+            ) : (
+              <>
+                {over === 'cullComplete' && <p className="note">{copy.backbone.cullComplete}</p>}
+                {over === 'queueEmpty' && <p className="warning">{copy.backbone.queueSpent}</p>}
+              </>
+            )}
+            {cullLowOnQuestions(state) && (
+              <p className="warning">{copy.backbone.queueLow(questionsLeft(state))}</p>
+            )}
           </>
-        )}
-        {cullLowOnQuestions(state) && (
-          <p className="warning">{copy.backbone.queueLow(questionsLeft(state))}</p>
         )}
 
         {presenter && (
