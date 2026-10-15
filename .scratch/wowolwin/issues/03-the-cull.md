@@ -192,11 +192,24 @@ phone is turned away.
 - Real show: `data/event-log.json` (today's `DEFAULT_LOG_PATH`, unchanged).
 - Seeded rehearsal: `data/rehearsal-log.json`.
 
-`GameEvent` gains **no** `simulated` flag. If the two logs never mix, a seeded
-`playerJoined` and a real one never coexist in one fold, so an unlabelled event costs
-nothing. Labelling would buy exactly one thing — a badge so the Presenter knows they
-are rehearsing — and that is a copy string on the Backbone, not an event-schema
-change. Do not put the flag in the event; put the word on the screen.
+The separation, not a flag, is what tells a rehearsal from a show. If the two logs
+never mix, a seeded `playerJoined` and a real one never need to be told apart to
+answer that question.
+
+**Amended during the build.** This section originally said `GameEvent` gains no
+`simulated` flag at all. @Implementer showed that was wrong, for a reason about
+*per-player behaviour* rather than rehearsal-vs-show, and the flag stayed:
+
+- `simulatedPlayersCleared` needs it to remove the seeded room and leave the
+  Presenter's own phones on the roster. Without it, "torn down cleanly" takes real
+  phones off the roster with the fake ones and this ticket's box 2 is not met.
+- `planSimulateAnswers` needs it to answer only seeded Players, so a rehearsal that
+  also has a real phone attached does not have that phone silently answering itself.
+
+The original reasoning was about *labelling for display*; the flag that turned out to
+be needed is about *behaviour*. Those are different questions and conflating them is
+what made the first version wrong. The rehearsal badge remains a Backbone copy string
+— nothing about showing which mode is running depends on the event schema.
 
 **This also removes the real risk.** Right now the only thing standing between a
 rehearsal and the actual show is remembering `npm start` instead of `npm run resume`.
